@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791198680285,
+      "tag": "0000_fluffy_stone_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791199994187,
+      "tag": "0001_ajout_perte_par_token",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791200001348,
+      "tag": "0002_retrait_rug_rapide",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791200680884,
+      "tag": "0003_retrait_type_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791217815230,
+      "tag": "0004_phase_de_test",
+      "breakpoints": true
+    }
+  ]
+}

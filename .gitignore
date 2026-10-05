@@ -1,0 +1,23 @@
+# dépendances
+node_modules/
+
+# build Next.js
+.next/
+out/
+next-env.d.ts
+
+# base de données locale — ne jamais committer
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# variables d'environnement — ne jamais committer de vraie clé
+.env
+.env.local
+.env*.local
+
+# divers
+.DS_Store
+*.tsbuildinfo
+coverage/

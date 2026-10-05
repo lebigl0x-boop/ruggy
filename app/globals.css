@@ -1,0 +1,133 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Couleurs système Apple. Chaque teinte a son équivalent sombre ; le thème
+   suit celui du système, sans interrupteur dans l'app.
+   --------------------------------------------------------------------------- */
+:root {
+  --c-bg: #f2f2f7;
+  --c-card: #ffffff;
+  --c-card-2: #f2f2f7;
+  --c-text: #000000;
+  --c-text-2: rgba(60, 60, 67, 0.6);
+  --c-text-3: rgba(60, 60, 67, 0.3);
+  --c-separator: rgba(60, 60, 67, 0.29);
+  --c-fill: rgba(118, 118, 128, 0.12);
+  --c-fill-2: rgba(118, 118, 128, 0.08);
+  /* Pastille du contrôle segmenté : toujours plus claire que son rail. */
+  --c-segment: #ffffff;
+  --c-nav: rgba(249, 249, 249, 0.82);
+  --c-blue: #007aff;
+  --c-green: #34c759;
+  --c-red: #ff3b30;
+  --c-orange: #ff9500;
+  --c-gray: #8e8e93;
+  --c-shadow: rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-bg: #000000;
+    --c-card: #1c1c1e;
+    --c-card-2: #2c2c2e;
+    --c-text: #ffffff;
+    --c-text-2: rgba(235, 235, 245, 0.6);
+    --c-text-3: rgba(235, 235, 245, 0.3);
+    --c-separator: rgba(84, 84, 88, 0.65);
+    --c-fill: rgba(118, 118, 128, 0.24);
+    --c-fill-2: rgba(118, 118, 128, 0.16);
+    --c-segment: #636366;
+    --c-nav: rgba(28, 28, 30, 0.82);
+    --c-blue: #0a84ff;
+    --c-green: #30d158;
+    --c-red: #ff453a;
+    --c-orange: #ff9f0a;
+    --c-gray: #8e8e93;
+    --c-shadow: rgba(0, 0, 0, 0.4);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-card: var(--c-card);
+  --color-card-2: var(--c-card-2);
+  --color-ink: var(--c-text);
+  --color-ink-2: var(--c-text-2);
+  --color-ink-3: var(--c-text-3);
+  --color-separator: var(--c-separator);
+  --color-fill: var(--c-fill);
+  --color-fill-2: var(--c-fill-2);
+  --color-segment: var(--c-segment);
+  --color-nav: var(--c-nav);
+  --color-blue: var(--c-blue);
+  --color-green: var(--c-green);
+  --color-red: var(--c-red);
+  --color-orange: var(--c-orange);
+  --color-gray: var(--c-gray);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Helvetica Neue',
+    Arial, sans-serif;
+
+  --radius-card: 12px;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  /* Pas de voile gris au toucher : on gère nous-mêmes l'état enfoncé. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* L'app occupe exactement l'écran : pas de rebond élastique sur la page. */
+  overscroll-behavior: none;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--c-blue) 25%, transparent);
+}
+
+/* Réglage système « réduire les animations » : on retire les transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Tout ce qui suit doit rester dans @layer base : une règle non calquée
+ * l'emporte sur les classes utilitaires de Tailwind, et `color: inherit`
+ * écraserait alors la couleur de chaque bouton (text-blue, text-red…).
+ */
+@layer base {
+  /* Champs et boutons : on retire l'habillage natif, on garde le comportement. */
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+
+  /* Anneau de focus discret, à la macOS. */
+  :focus-visible {
+    outline: 2px solid var(--c-blue);
+    outline-offset: 1px;
+  }
+}
