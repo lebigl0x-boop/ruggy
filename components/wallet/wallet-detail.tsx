@@ -6,10 +6,12 @@ import { useMemo, useState } from 'react'
 
 import {
   concludeTestAction,
+  createDayTokenAction,
   createTokenAction,
   deleteTokenAction,
   deleteWalletAction,
   reopenTestAction,
+  setDayStateAction,
   setWalletStatusAction,
   startTestAction,
   updateSolPriceAction,
@@ -23,12 +25,13 @@ import { computeWalletReport } from '@/lib/compute'
 import { GMGN_URL, SOLSCAN_URL, formatDateFr, shortAddress } from '@/lib/format'
 import type {
   GlobalSettings,
+  Token,
   UpdateTokenPatch,
   WalletStatus,
   WalletWithTokens,
 } from '@/lib/repo/types'
 import { screeningTokens, toDayInputs, toTokenInput } from '@/lib/repo/types'
-import { computeTestReport } from '@/lib/test-report'
+import { computeTestReport, type DayState } from '@/lib/test-report'
 import type { StrategyField } from '@/lib/validation'
 import { cn } from '../ui/cn'
 import { TextField } from '../ui/field'
@@ -41,7 +44,7 @@ import { InfosSection } from './infos-section'
 import { NotesSection } from './notes-section'
 import { PhaseSection } from './phase-section'
 import { StrategySection } from './strategy-section'
-import { TestSection } from './test-section'
+import { TestSection, type JourneeEditable } from './test-section'
 import { TokenTable } from './token-table'
 
 export function WalletDetail({
@@ -83,6 +86,28 @@ export function WalletDetail({
       }),
     [wallet, wallet.strategy, wallet.tagOverride, solPriceEur],
   )
+
+  /**
+   * Les journées, chacune avec ses tokens dans l'ordre où le bilan les a
+   * calculés — c'est ce qui aligne les résultats affichés sur les lignes
+   * saisies. `toDayInputs` parcourt `wallet.tokens` dans l'ordre : on refait
+   * le même parcours ici.
+   */
+  const journees = useMemo<JourneeEditable[]>(() => {
+    const parJour = new Map<string, Token[]>()
+    for (const token of wallet.tokens) {
+      if (token.phase !== 'test' || token.dayId === null) continue
+      const liste = parJour.get(token.dayId)
+      if (liste) liste.push(token)
+      else parJour.set(token.dayId, [token])
+    }
+
+    return wallet.days.map((jour) => ({
+      dayId: jour.id,
+      day: jour.day,
+      tokens: parJour.get(jour.id) ?? [],
+    }))
+  }, [wallet])
 
   const enTest = wallet.status !== 'screening'
 
@@ -145,6 +170,30 @@ export function WalletDetail({
       const token = await createTokenAction(wallet.id)
       setWallet((precedent) => ({ ...precedent, tokens: [...precedent.tokens, token] }))
     })
+  }
+
+  /** Ajoute une ligne à une journée déjà relevée, qui redevient active. */
+  function ajouterTokenJour(dayId: string) {
+    run(async () => {
+      const token = await createDayTokenAction(wallet.id, dayId)
+      setWallet((precedent) => ({
+        ...precedent,
+        tokens: [...precedent.tokens, token],
+        days: precedent.days.map((jour) =>
+          jour.id === dayId ? { ...jour, state: 'actif' } : jour,
+        ),
+      }))
+    })
+  }
+
+  function majEtatJour(dayId: string, state: DayState) {
+    setWallet((precedent) => ({
+      ...precedent,
+      days: precedent.days.map((jour) =>
+        jour.id === dayId ? { ...jour, state } : jour,
+      ),
+    }))
+    schedule(`day:${dayId}:state`, () => setDayStateAction(dayId, state))
   }
 
   function supprimerToken(id: string) {
@@ -243,7 +292,17 @@ export function WalletDetail({
           }
         />
 
-        {enTest ? <TestSection test={test} /> : null}
+        {enTest ? (
+          <TestSection
+            test={test}
+            journees={journees}
+            strategy={wallet.strategy}
+            onChangeToken={majToken}
+            onDeleteToken={supprimerToken}
+            onAddToken={ajouterTokenJour}
+            onDayState={majEtatJour}
+          />
+        ) : null}
 
         <TokenTable
           tokens={tokensScreening}

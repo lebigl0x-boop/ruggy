@@ -72,6 +72,7 @@ export function createTokens(
     gain: input.gain ?? null,
     perteRug: input.perteRug ?? null,
     delay: input.delay ?? null,
+    pris: input.pris ?? true,
     phase: options.phase ?? 'screening',
     dayId: options.dayId ?? null,
     source: options.source ?? 'manual',
@@ -91,6 +92,7 @@ export function updateToken(id: string, patch: UpdateTokenPatch): void {
   if (patch.gain !== undefined) values.gain = patch.gain
   if (patch.perteRug !== undefined) values.perteRug = patch.perteRug
   if (patch.delay !== undefined) values.delay = patch.delay
+  if (patch.pris !== undefined) values.pris = patch.pris
 
   db.update(tokens).set(values).where(eq(tokens.id, id)).run()
 }

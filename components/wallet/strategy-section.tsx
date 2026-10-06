@@ -12,7 +12,7 @@ const ORDRE: StrategyField[] = ['mise', 'objectif', 'perteRug', 'frais', 'tauxVi
 
 const EXPLICATIONS: Record<StrategyField, string> = {
   mise: 'Ce que vous engagez sur chaque token.',
-  objectif: 'La montée à laquelle vous revendez.',
+  objectif: 'La montée minimum pour qu’un token compte comme gagnant.',
   perteRug: 'Perte appliquée aux tokens dont la perte n’est pas renseignée.',
   frais: 'Frais de réseau et de plateforme, par trade.',
   tauxVise: 'Le taux de réussite à partir duquel vous jugez un wallet rentable.',

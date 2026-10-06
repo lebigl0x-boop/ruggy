@@ -32,6 +32,11 @@ export type Token = {
   /** Perte de ce lancement en %. `null` = on reprend celle du wallet. */
   perteRug: number | null
   delay: number | null
+  /**
+   * Le token a été pris. Un token non pris reste relevé — il dit ce que le
+   * wallet a lancé — mais il n'entre pas dans le résultat.
+   */
+  pris: boolean
   phase: TokenPhase
   /** Journée de rattachement. Toujours renseignée en phase de test. */
   dayId: string | null
@@ -84,7 +89,12 @@ export type GlobalSettings = {
 
 /** Un token réduit à ce dont le calcul a besoin. */
 export function toTokenInput(token: Token): TokenInput {
-  return { gain: token.gain, perteRug: token.perteRug, delay: token.delay }
+  return {
+    gain: token.gain,
+    perteRug: token.perteRug,
+    delay: token.delay,
+    pris: token.pris,
+  }
 }
 
 /** Les tokens de l'échantillon de screening. */
@@ -143,6 +153,7 @@ export type UpdateTokenPatch = Partial<{
   gain: number | null
   perteRug: number | null
   delay: number | null
+  pris: boolean
 }>
 
 /** Données d'un token créé en lot (saisie rapide, ou import Helius plus tard). */
@@ -152,6 +163,8 @@ export type CreateTokenInput = {
   gain?: number | null
   perteRug?: number | null
   delay?: number | null
+  /** Pris par défaut : on décoche ce que le filtre aurait écarté. */
+  pris?: boolean
 }
 
 /** Contenu d'une journée de test enregistrée d'un coup. */

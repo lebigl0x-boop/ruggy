@@ -11,19 +11,21 @@ import * as tokensRepo from '@/lib/repo/tokens'
 import * as walletsRepo from '@/lib/repo/wallets'
 import { toDayInputs } from '@/lib/repo/types'
 import type {
+  CreateTokenInput,
   Token,
   UpdateTokenPatch,
   UpdateWalletPatch,
   WalletDay,
   WalletStatus,
 } from '@/lib/repo/types'
-import { parseSaisie } from '@/lib/saisie'
+import { MAX_TOKENS_PAR_JOUR } from '@/lib/saisie'
 import { computeTestReport, type DayState } from '@/lib/test-report'
 import {
   clampStrategyField,
   hasBlockingIssue,
   isIsoDate,
   isTagOverride,
+  parseNumberFr,
   parsePerteToken,
   validateNewWallet,
   type FieldIssue,
@@ -250,20 +252,43 @@ export async function setWalletStatusAction(
 }
 
 export type SaveDayResult =
-  | { ok: true; day: WalletDay; tokensCrees: number; ignores: string[] }
+  | { ok: true; day: WalletDay; tokensCrees: number }
   | { ok: false; message: string }
+
+/**
+ * Remet une ligne saisie dans ses clous.
+ *
+ * L'écran envoie des valeurs déjà lues, mais c'est cette normalisation-ci qui
+ * fait foi : une perte reste une grandeur positive plafonnée à 100 %, un
+ * délai ne peut pas être négatif, un nom vide vaut « sans nom ».
+ */
+function normaliserLigne(ligne: CreateTokenInput): CreateTokenInput {
+  const nom = (ligne.name ?? '').trim()
+  const delay = parseNumberFr(ligne.delay)
+
+  return {
+    name: nom === '' ? null : nom,
+    gain: parseNumberFr(ligne.gain),
+    perteRug: parsePerteToken(ligne.perteRug),
+    delay: delay !== null && delay >= 0 ? delay : null,
+    // Pris par défaut : seul un `false` explicite écarte un token.
+    pris: ligne.pris !== false,
+  }
+}
 
 /**
  * Enregistre le relevé d'une journée.
  *
- * La saisie libre est relue ici, côté serveur : l'aperçu affiché pendant la
- * frappe sert au confort, c'est cette lecture-ci qui fait foi.
+ * La journée est réécrite en entier à chaque enregistrement : l'écran décrit
+ * la journée complète, il ne s'y ajoute pas. Les valeurs sont renormalisées
+ * ici, côté serveur — ce que l'écran affiche pendant la saisie sert au
+ * confort, c'est cette lecture-ci qui fait foi.
  */
 export async function saveDayAction(input: {
   walletId: string
   day: string
   state: DayState
-  saisie: string
+  tokens: readonly CreateTokenInput[]
 }): Promise<SaveDayResult> {
   const wallet = walletsRepo.getWallet(input.walletId)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
@@ -284,29 +309,41 @@ export async function saveDayAction(input: {
     return { ok: false, message: 'Cette journée n’a pas encore eu lieu.' }
   }
 
-  const lu = parseSaisie(input.saisie)
+  // Le plafond protège la base d'un copier-coller malheureux.
+  const lignes = input.tokens.slice(0, MAX_TOKENS_PAR_JOUR).map(normaliserLigne)
   const state: DayState =
-    input.state === 'inactif' || lu.tokens.length === 0 ? 'inactif' : 'actif'
+    input.state === 'inactif' || lignes.length === 0 ? 'inactif' : 'actif'
 
   const day = daysRepo.saveDay({
     walletId: input.walletId,
     day: input.day,
     state,
-    tokens: lu.tokens.map((token) => ({
-      name: token.name,
-      gain: token.gain,
-      perteRug: token.perteRug,
-      delay: token.delay,
-    })),
+    tokens: lignes,
   })
 
   refresh()
-  return {
-    ok: true,
-    day,
-    tokensCrees: state === 'inactif' ? 0 : lu.tokens.length,
-    ignores: lu.ignores,
-  }
+  return { ok: true, day, tokensCrees: state === 'inactif' ? 0 : lignes.length }
+}
+
+/**
+ * Ajoute une ligne à une journée déjà relevée.
+ *
+ * Une journée qui reçoit un token n'est plus une journée sans trade : son
+ * état suit, sans quoi le décompte des journées actives mentirait.
+ */
+export async function createDayTokenAction(
+  walletId: string,
+  dayId: string,
+): Promise<Token> {
+  const token = tokensRepo.createTokens(
+    walletId,
+    [{}],
+    { phase: 'test', dayId },
+  )[0]!
+
+  daysRepo.setDayState(dayId, 'actif')
+  refresh()
+  return token
 }
 
 export async function deleteDayAction(id: string): Promise<void> {

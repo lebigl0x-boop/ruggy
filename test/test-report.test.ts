@@ -9,15 +9,24 @@ import {
 
 const S = DEFAULT_STRATEGY
 
-/** Résultat d'un token avec la stratégie par défaut : +0,097 ou −0,093 SOL. */
-const GAGNANT = 0.097
+/**
+ * Résultat d'un token avec la stratégie par défaut, pour un gain saisi à
+ * +150 % : la montée réelle est encaissée, pas l'objectif.
+ */
+const GAGNANT = 0.147
 const PERDANT = -0.093
 
-function jour(day: string, gains: readonly (number | null)[]): DayInput {
-  const tokens: TokenInput[] = gains.map((gain) => ({
+/** `ecartes` liste les positions relevées mais pas prises (à partir de 1). */
+function jour(
+  day: string,
+  gains: readonly (number | null)[],
+  ecartes: readonly number[] = [],
+): DayInput {
+  const tokens: TokenInput[] = gains.map((gain, i) => ({
     gain,
     perteRug: null,
     delay: null,
+    pris: !ecartes.includes(i + 1),
   }))
   return { day, state: 'actif', tokens }
 }
@@ -186,6 +195,36 @@ describe('computeTestReport — verdict', () => {
     )
     expect(rapport.tauxInactivite).toBe(50)
     expect(rapport.conseil?.code).toBe('inactivite')
+  })
+})
+
+describe('computeTestReport — tokens écartés', () => {
+  // Le deuxième token de la journée est relevé mais pas pris : le wallet a
+  // bien lancé deux fois, on n'a joué qu'une fois.
+  const rapport = computeTestReport([jour('2026-10-01', [150, 20], [2])], S)
+
+  it('garde le token écarté dans le relevé de la journée', () => {
+    expect(rapport.days[0]).toMatchObject({ total: 2, n: 2, pris: 1, hits: 1 })
+    expect(rapport.tokensTotal).toBe(2)
+    expect(rapport.tokensPris).toBe(1)
+  })
+
+  it('sort le token écarté du résultat de la journée', () => {
+    expect(rapport.days[0]!.pnlSol).toBeCloseTo(GAGNANT, 6)
+    expect(rapport.days[0]!.pnlSolTout).toBeCloseTo(GAGNANT + PERDANT, 6)
+    expect(rapport.pnlSol).toBeCloseTo(GAGNANT, 6)
+  })
+
+  it('n’engage que ce qui est pris dans l’exposition', () => {
+    // Un token qu'on ne prend pas n'immobilise pas la mise.
+    expect(rapport.expositionMaxSol).toBeCloseTo(S.mise, 10)
+  })
+
+  it('aligne les lignes de la journée sur ses tokens', () => {
+    // L'écran de correction affiche chaque résultat en face de sa saisie :
+    // l'ordre et le nombre doivent suivre, écartés compris.
+    expect(rapport.days[0]!.rows).toHaveLength(2)
+    expect(rapport.days[0]!.rows.map((ligne) => ligne.pris)).toEqual([true, false])
   })
 })
 

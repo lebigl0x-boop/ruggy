@@ -79,6 +79,7 @@ export function mapToken(row: TokenRow): Token {
     gain: row.gain,
     perteRug: row.perteRug,
     delay: row.delay,
+    pris: row.pris,
     phase: toPhase(row.phase),
     dayId: row.dayId,
     source: toSource(row.source),

@@ -48,7 +48,7 @@ export function TokenTable({
             key={token.id}
             token={token}
             index={index}
-            row={rows[index] ?? { result: null, cumulSol: null }}
+            row={rows[index] ?? { result: null, pris: true, cumulSol: null }}
             strategy={strategy}
             onChange={onChange}
             onDelete={onDelete}
@@ -67,7 +67,9 @@ export function TokenTable({
 
       <p className="mt-2 px-4 text-[13px] text-ink-2">
         Laissez le gain vide tant que le token n’est pas analysé : il ne
-        comptera pas dans le bilan. La perte laissée vide reprend celle du
+        comptera pas dans le bilan. Au-dessus de l’objectif
+        ({formatPercent(strategy.objectif)}) le gain compte à sa valeur réelle ;
+        en dessous, c’est une perte. La perte laissée vide reprend celle du
         wallet ({formatPercent(strategy.perteRug)}).
       </p>
     </section>

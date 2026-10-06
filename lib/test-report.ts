@@ -13,6 +13,7 @@
 
 import {
   computeWalletReport,
+  type ReportRow,
   type Strategy,
   type TagOverride,
   type TokenInput,
@@ -46,12 +47,23 @@ export type DayInput = {
 export type DayResult = {
   day: string
   state: DayState
-  /** Tokens relevés ce jour-là, notés ou non. */
+  /**
+   * Les lignes de la journée, alignées sur l'ordre de ses tokens. L'écran de
+   * correction s'en sert pour afficher chaque résultat en face de sa saisie.
+   */
+  rows: ReportRow[]
+  /** Tokens relevés ce jour-là, notés ou non, pris ou non. */
   total: number
-  /** Tokens notés, seuls à entrer dans le résultat. */
+  /** Tokens pris ce jour-là : ce qui a été engagé. */
+  pris: number
+  /** Tokens notés, pris ou non. */
   n: number
+  /** Tokens notés ayant atteint l'objectif, pris ou non. */
   hits: number
+  /** Résultat de la journée sur les seuls tokens pris. */
   pnlSol: number
+  /** Résultat qu'aurait donné la journée en prenant tout. */
+  pnlSolTout: number
 }
 
 export type ConseilCode = 'jours' | 'volume' | 'inactivite'
@@ -70,9 +82,14 @@ export type TestReport = {
 
   /** Tokens relevés sur toute la phase, notés ou non. */
   tokensTotal: number
+  /** Tokens pris sur toute la phase. */
+  tokensPris: number
   /** Tokens relevés par journée active. */
   tokensParJourActif: number
-  /** Plus gros engagement sur une seule journée, en SOL. */
+  /**
+   * Plus gros engagement sur une seule journée, en SOL.
+   * Compté sur les tokens pris : un token écarté n'immobilise rien.
+   */
   expositionMaxSol: number
 
   /** Bilan calculé sur l'ensemble des tokens de test, dans l'ordre des jours. */
@@ -142,10 +159,15 @@ export function computeTestReport(
     return {
       day: jour.day,
       state: jour.state,
+      rows: lignes,
       total: jour.tokens.length,
+      pris: lignes.filter((ligne) => ligne.pris).length,
       n: notes.length,
       hits: notes.filter((ligne) => ligne.result!.hit).length,
-      pnlSol: somme(notes.map((ligne) => ligne.result!.sol)),
+      pnlSol: somme(
+        notes.filter((ligne) => ligne.pris).map((ligne) => ligne.result!.sol),
+      ),
+      pnlSolTout: somme(notes.map((ligne) => ligne.result!.sol)),
     }
   })
 
@@ -154,6 +176,7 @@ export function computeTestReport(
   const joursInactifs = joursObserves - joursActifs
 
   const tokensTotal = somme(results.map((jour) => jour.total))
+  const tokensPris = somme(results.map((jour) => jour.pris))
   const pnlSol = report.netSol
 
   const gagnants = results.filter((jour) => jour.pnlSol > 0)
@@ -174,10 +197,11 @@ export function computeTestReport(
     joursInactifs,
     tauxInactivite,
     tokensTotal,
+    tokensPris,
     tokensParJourActif: joursActifs > 0 ? tokensTotal / joursActifs : 0,
     expositionMaxSol:
       strategy.mise *
-      results.reduce((max, jour) => Math.max(max, jour.total), 0),
+      results.reduce((max, jour) => Math.max(max, jour.pris), 0),
     report,
     pnlSol,
     pnlMoyenParJour: joursObserves > 0 ? pnlSol / joursObserves : 0,

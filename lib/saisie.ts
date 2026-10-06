@@ -18,6 +18,12 @@ export type SaisieToken = {
   /** Renseignée seulement quand la saisie porte une perte explicite. */
   perteRug: number | null
   delay: number | null
+  /**
+   * Toujours `true` : la saisie rapide relève ce que le wallet a lancé, et on
+   * suppose qu'on l'a suivi. C'est au tableau, après lecture, qu'on décoche
+   * les tokens que le filtre d'entrée aurait écartés.
+   */
+  pris: boolean
   /** Le fragment d'origine, pour l'aperçu avant validation. */
   raw: string
 }
@@ -133,6 +139,7 @@ function finaliser(token: EnCours): SaisieToken {
     gain: token.gain,
     perteRug: token.gain !== null ? perteDepuisGain(token.gain) : null,
     delay: token.delai,
+    pris: true,
     raw: token.raw.join(' '),
   }
 }

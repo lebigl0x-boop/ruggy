@@ -115,6 +115,15 @@ export const tokens = sqliteTable(
     perteRug: real('perte_rug'),
     /** Délai avant dump, en minutes. */
     delay: real('delay'),
+    /**
+     * Le token a été pris. Un token non pris reste une observation du wallet
+     * — il a bien lancé ce jour-là — mais son résultat n'entre pas dans le
+     * PNL : c'est ce qui permet de mesurer un filtre d'entrée.
+     *
+     * Par défaut à vrai, pour que les relevés antérieurs au filtre gardent
+     * exactement les chiffres qu'ils avaient.
+     */
+    pris: integer('pris', { mode: 'boolean' }).notNull().default(true),
 
     /**
      * De quel lot vient ce token : 'screening' (échantillon historique choisi

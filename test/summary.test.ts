@@ -42,6 +42,7 @@ function wallet(
       gain,
       perteRug: null,
       delay: null,
+      pris: true,
       phase: 'screening' as const,
       dayId: null,
       source: 'manual' as const,
@@ -58,8 +59,8 @@ describe('summarize', () => {
   it('reprend le tag et le net calculés', () => {
     const resume = summarize(wallet('A', dix(5)), SETTINGS)
     expect(resume.tag).toBe('Rentable')
-    // 5 × (+0,097) + 5 × (−0,093) = +0,020
-    expect(resume.netSol).toBeCloseTo(0.02, 6)
+    // 5 × (+0,147) + 5 × (−0,093) = +0,270
+    expect(resume.netSol).toBeCloseTo(0.27, 6)
     expect(resume.n).toBe(10)
   })
 

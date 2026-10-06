@@ -72,7 +72,14 @@ describe('parseSaisie — perte', () => {
 describe('parseSaisie — nom et délai', () => {
   it('lit nom, gain et délai sur une même ligne', () => {
     expect(parseSaisie('BONK 120 5m').tokens).toEqual([
-      { name: 'BONK', gain: 120, perteRug: null, delay: 5, raw: 'BONK 120 5m' },
+      {
+        name: 'BONK',
+        gain: 120,
+        perteRug: null,
+        delay: 5,
+        pris: true,
+        raw: 'BONK 120 5m',
+      },
     ])
   })
 

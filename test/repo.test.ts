@@ -184,6 +184,17 @@ describe('tokens', () => {
     expect(relu.perteRug).toBe(65)
   })
 
+  it('bascule un token en « pas pris »', () => {
+    const wallet = nouveauWallet()
+    const premier = tokensRepo.listTokens(wallet.id)[0]!
+
+    tokensRepo.updateToken(premier.id, { pris: false })
+    expect(tokensRepo.listTokens(wallet.id)[0]!.pris).toBe(false)
+
+    tokensRepo.updateToken(premier.id, { pris: true })
+    expect(tokensRepo.listTokens(wallet.id)[0]!.pris).toBe(true)
+  })
+
   it('accepte de remettre un gain à vide', () => {
     const wallet = nouveauWallet()
     const premier = wallet.tokens[0]!
@@ -254,6 +265,37 @@ describe('journées de test', () => {
     const duJour = wallet.tokens.filter((t) => t.dayId === jour.id)
     expect(duJour).toHaveLength(2)
     expect(duJour.every((t) => t.phase === 'test')).toBe(true)
+  })
+
+  it('retient les tokens écartés d’une journée', () => {
+    const id = enTest()
+    const jour = daysRepo.saveDay({
+      walletId: id,
+      day: '2026-10-01',
+      state: 'actif',
+      tokens: [{ gain: 150 }, { gain: 20, pris: false }],
+    })
+
+    const duJour = walletsRepo
+      .getWallet(id)!
+      .tokens.filter((t) => t.dayId === jour.id)
+    expect(duJour.map((t) => t.pris)).toEqual([true, false])
+  })
+
+  it('prend le token par défaut quand rien n’est précisé', () => {
+    // Les relevés d'avant le filtre doivent garder les chiffres qu'ils avaient.
+    const id = enTest()
+    const jour = daysRepo.saveDay({
+      walletId: id,
+      day: '2026-10-01',
+      state: 'actif',
+      tokens: [{ gain: 150 }],
+    })
+
+    const duJour = walletsRepo
+      .getWallet(id)!
+      .tokens.filter((t) => t.dayId === jour.id)
+    expect(duJour[0]!.pris).toBe(true)
   })
 
   it('n’ajoute pas les tokens de test à l’échantillon de screening', () => {

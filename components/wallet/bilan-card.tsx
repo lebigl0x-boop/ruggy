@@ -39,6 +39,23 @@ export function BilanCard({
           </p>
         ) : null}
 
+        {/* Ce que le filtre d'entrée change, quand il y en a un. Sans tokens
+            écartés, les deux nets sont égaux et la ligne serait du bruit. */}
+        {report.nPris < report.n ? (
+          <p className="mt-1.5 text-[13px] text-ink-3 tabular-nums">
+            {report.n - report.nPris} écartés · en prenant tout :{' '}
+            {formatSol(report.netSolTout)}
+            <span
+              className={cn(
+                'ml-1.5',
+                report.apportFiltre >= 0 ? 'text-green' : 'text-red',
+              )}
+            >
+              ({formatSol(report.apportFiltre, { sign: true })})
+            </span>
+          </p>
+        ) : null}
+
         <div className="mt-4 flex justify-center">
           <TagBadge
             tag={report.effectiveTag}
@@ -104,9 +121,11 @@ export function BilanCard({
         />
         <Metrique
           label="Projection sur 100 tokens"
-          valeur={report.n > 0 ? formatSol(report.projection100) : '—'}
-          detail={report.n > 0 ? 'Au rythme actuel' : 'Pas encore de données'}
-          ton={report.n === 0 ? undefined : report.projection100 > 0 ? 'vert' : 'rouge'}
+          valeur={report.nPris > 0 ? formatSol(report.projection100) : '—'}
+          detail={report.nPris > 0 ? 'Sur 100 tokens pris' : 'Pas encore de données'}
+          ton={
+            report.nPris === 0 ? undefined : report.projection100 > 0 ? 'vert' : 'rouge'
+          }
           bordureDroite
           bordureHaute
         />
