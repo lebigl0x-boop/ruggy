@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
 
 import {
+  cancelTestAction,
   concludeTestAction,
   createDayTokenAction,
   openDayAction,
@@ -418,6 +419,13 @@ export function WalletDetail({
                   onStart={() => {
                     majStatut(() => startTestAction(wallet.id), 'test')
                     setOnglet('journees')
+                  }}
+                  // Annuler ramène au screening, et l'onglet Journées
+                  // disparaît : on revient sur le Bilan pour ne pas laisser
+                  // un onglet vide sélectionné.
+                  onCancel={() => {
+                    majStatut(() => cancelTestAction(wallet.id), 'screening')
+                    setOnglet('bilan')
                   }}
                   onConclude={(verdict) =>
                     majStatut(() => concludeTestAction(wallet.id, verdict), verdict)

@@ -28,6 +28,7 @@ export function PhaseSection({
   joursAFaire,
   onStart,
   onConclude,
+  onCancel,
   onReopen,
   onClassify,
 }: {
@@ -40,14 +41,14 @@ export function PhaseSection({
   /**
    * Journées de ce wallet en attente de relevé.
    *
-   * Un test lancé aujourd'hui n'a encore rien à relever : le relevé du matin
-   * porte sur la veille. Proposer d'aller saisir enverrait sur une file qui
-   * ne peut pas contenir ce wallet — et où c'est le premier venu qui
-   * s'ouvre.
+   * Zéro une fois le plancher atteint : le wallet n'attend plus un relevé
+   * mais une décision. Proposer d'aller saisir enverrait sur une file qui ne
+   * peut pas contenir ce wallet — et où c'est le premier venu qui s'ouvre.
    */
   joursAFaire: number
   onStart: () => void
   onConclude: (verdict: 'valide' | 'rejete') => void
+  onCancel: () => void
   onReopen: () => void
   onClassify: (status: WalletStatus) => void
 }) {
@@ -101,8 +102,8 @@ export function PhaseSection({
                 </Link>
               ) : (
                 <p className="border-t border-separator px-4 py-3 text-[13px] text-ink-3">
-                  Rien à relever pour l’instant : le relevé du matin porte sur
-                  la veille.
+                  Rien à relever : toutes les journées depuis l’ouverture du
+                  test sont saisies.
                 </p>
               )}
 
@@ -111,6 +112,13 @@ export function PhaseSection({
                 disabled={!test.verdictDisponible}
               >
                 Conclure le test
+              </Action>
+
+              {/* Jamais désactivé : un test lancé par erreur ne doit pas
+                  attendre quatre journées pour être défait. Les journées
+                  déjà relevées, elles, sont conservées. */}
+              <Action onClick={onCancel} discret>
+                Annuler le test
               </Action>
             </>
           ) : null}

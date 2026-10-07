@@ -251,6 +251,33 @@ export async function setWalletStatusAction(
   return { ok: true }
 }
 
+/**
+ * Annule une phase de test lancée par erreur.
+ *
+ * Le wallet retourne au screening. La date d'ouverture n'est effacée que si
+ * aucune journée n'a été relevée : c'est la signature d'une fausse manœuvre.
+ * Dès qu'une journée existe, la fenêtre d'observation a commencé pour de bon
+ * et l'effacer fausserait le décompte si le test reprenait — les journées,
+ * elles, ne sont jamais supprimées.
+ */
+export async function cancelTestAction(id: string): Promise<ActionResult> {
+  const wallet = await walletsRepo.getWallet(id)
+  if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
+  if (wallet.status !== 'test') {
+    return { ok: false, message: 'Ce wallet n’est pas en phase de test.' }
+  }
+
+  const aucunReleve = wallet.days.length === 0
+
+  await walletsRepo.updateWallet(id, {
+    status: 'screening',
+    ...(aucunReleve ? { testStartedAt: null } : {}),
+  })
+
+  refresh()
+  return { ok: true }
+}
+
 export type SaveDayResult =
   | { ok: true; day: WalletDay; tokensCrees: number }
   | { ok: false; message: string }

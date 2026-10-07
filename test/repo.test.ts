@@ -412,7 +412,7 @@ describe('journées de test', () => {
 })
 
 describe('file du matin', () => {
-  it('réclame les journées manquantes jusqu’à la veille', async () => {
+  it('réclame les journées manquantes, jour courant compris', async () => {
     const wallet = await nouveauWallet()
     await walletsRepo.updateWallet(wallet.id, {
       status: 'test',
@@ -427,7 +427,34 @@ describe('file du matin', () => {
 
     const file = await daysRepo.listFileDuMatin('2026-10-05')
     expect(file).toHaveLength(1)
-    expect(file[0]!.jours).toEqual(['2026-10-01', '2026-10-03', '2026-10-04'])
+    // Le 5 est dedans : on relève au fil de l'eau, et ré-enregistrer une
+    // journée la remplace.
+    expect(file[0]!.jours).toEqual([
+      '2026-10-01',
+      '2026-10-03',
+      '2026-10-04',
+      '2026-10-05',
+    ])
+  })
+
+  it('sort le wallet de la file dès qu’il a son plancher de journées', async () => {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, {
+      status: 'test',
+      testStartedAt: '2026-10-01',
+    })
+    for (const day of ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']) {
+      await daysRepo.saveDay({
+        walletId: wallet.id,
+        day,
+        state: 'actif',
+        tokens: [{ gain: 150 }],
+      })
+    }
+
+    // Le 5 n'est pas saisi, mais le wallet attend désormais un verdict, pas
+    // un relevé de plus.
+    expect(await daysRepo.listFileDuMatin('2026-10-05')).toEqual([])
   })
 
   it('ignore les wallets qui ne sont pas en test', async () => {
@@ -441,12 +468,14 @@ describe('file du matin', () => {
       status: 'test',
       testStartedAt: '2026-10-04',
     })
-    await daysRepo.saveDay({
-      walletId: wallet.id,
-      day: '2026-10-04',
-      state: 'actif',
-      tokens: [{ gain: 150 }],
-    })
+    for (const day of ['2026-10-04', '2026-10-05']) {
+      await daysRepo.saveDay({
+        walletId: wallet.id,
+        day,
+        state: 'actif',
+        tokens: [{ gain: 150 }],
+      })
+    }
     expect(await daysRepo.listFileDuMatin('2026-10-05')).toEqual([])
   })
 })

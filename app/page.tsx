@@ -36,7 +36,7 @@ export default async function MatinPage({
   return (
     <Page
       titre="Ce matin"
-      sousTitre={`${formatDateFr(aujourdhui)} · relevé des journées écoulées`}
+      sousTitre={`${formatDateFr(aujourdhui)} · journées à relever`}
     >
       <FileDuMatin entrees={entrees} ouvrir={wallet} />
     </Page>

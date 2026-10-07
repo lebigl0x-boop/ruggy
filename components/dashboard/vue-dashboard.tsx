@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import {
+  cancelTestAction,
   concludeTestAction,
   reopenTestAction,
   setWalletStatusAction,
@@ -162,6 +163,7 @@ export function VueDashboard({ vue }: { vue: Portefeuille }) {
               enCours={enCours}
               onStart={(id) => agir(id, () => startTestAction(id))}
               onConclude={(id, verdict) => agir(id, () => concludeTestAction(id, verdict))}
+              onCancel={(id) => agir(id, () => cancelTestAction(id))}
               onReopen={(id) => agir(id, () => reopenTestAction(id))}
               onClassify={(id, cible) => agir(id, () => setWalletStatusAction(id, cible))}
             />
@@ -208,6 +210,7 @@ function Colonne({
   enCours,
   onStart,
   onConclude,
+  onCancel,
   onReopen,
   onClassify,
 }: {
@@ -217,6 +220,7 @@ function Colonne({
   enCours: string | null
   onStart: (id: string) => void
   onConclude: (id: string, verdict: 'valide' | 'rejete') => void
+  onCancel: (id: string) => void
   onReopen: (id: string) => void
   onClassify: (id: string, cible: WalletStatus) => void
 }) {
@@ -244,6 +248,7 @@ function Colonne({
               occupe={enCours === ligne.id}
               onStart={onStart}
               onConclude={onConclude}
+              onCancel={onCancel}
               onReopen={onReopen}
               onClassify={onClassify}
             />
@@ -259,6 +264,7 @@ function Carte({
   occupe,
   onStart,
   onConclude,
+  onCancel,
   onReopen,
   onClassify,
 }: {
@@ -266,6 +272,7 @@ function Carte({
   occupe: boolean
   onStart: (id: string) => void
   onConclude: (id: string, verdict: 'valide' | 'rejete') => void
+  onCancel: (id: string) => void
   onReopen: (id: string) => void
   onClassify: (id: string, cible: WalletStatus) => void
 }) {
@@ -350,6 +357,11 @@ function Carte({
               occupe={occupe || !ligne.verdictDisponible}
             >
               Écarter
+            </Action>
+            {/* Toujours disponible : un test lancé par erreur ne doit pas
+                attendre quatre journées pour être défait. */}
+            <Action onClick={() => onCancel(ligne.id)} occupe={occupe}>
+              Annuler le test
             </Action>
           </>
         ) : null}

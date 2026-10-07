@@ -4,8 +4,8 @@ import { and, asc, eq } from 'drizzle-orm'
 
 import { db } from '../db'
 import { tokens, walletDays, wallets } from '../db/schema'
-import { joursManquants, jourPrecedent } from '../jours'
-import type { DayState } from '../test-report'
+import { joursManquants } from '../jours'
+import { JOURS_MINIMUM_TEST, type DayState } from '../test-report'
 import { mapWallet, mapWalletDay } from './mappers'
 import { createTokens } from './tokens'
 import type { SaveDayInput, Wallet, WalletDay } from './types'
@@ -129,16 +129,20 @@ export type FileDuMatin = {
 }
 
 /**
- * Ce qu'il reste à relever ce matin.
+ * Ce qu'il reste à relever.
  *
- * La dernière journée attendue est la veille : le relevé du matin porte sur
- * ce que le wallet a tradé hier, le jour même n'est pas encore fini. Les
- * matins sautés remontent dans la liste au lieu de disparaître — sans quoi le
- * décompte des jours d'observation serait faux.
+ * La journée du jour est comprise : on relève au fil de l'eau ce que le
+ * wallet a lancé, et ré-enregistrer une journée la remplace — revenir le soir
+ * compléter la matinée est donc sans danger.
+ *
+ * Un wallet quitte la file dès qu'il a son plancher de journées : à ce
+ * moment-là il n'attend plus un relevé mais une décision, et continuer à le
+ * réclamer chaque matin masquerait ceux qui, eux, en ont encore besoin.
+ *
+ * Les matins sautés remontent dans la liste au lieu de disparaître — sans
+ * quoi le décompte des jours d'observation serait faux.
  */
 export async function listFileDuMatin(aujourdhui: string): Promise<FileDuMatin[]> {
-  const hier = jourPrecedent(aujourdhui)
-
   // Les wallets en test et leurs journées d'un seul coup. Cette fonction
   // tourne sur chaque page — c'est elle qui alimente la pastille du rail —
   // et chaque requête supplémentaire coûte un aller-retour vers Supabase.
@@ -165,16 +169,21 @@ export async function listFileDuMatin(aujourdhui: string): Promise<FileDuMatin[]
   }
 
   return enTest
-    .map((wallet) => ({
-      wallet,
-      jours:
-        wallet.testStartedAt === null
-          ? []
-          : joursManquants({
-              debut: wallet.testStartedAt,
-              jusqua: hier,
-              saisis: saisisParWallet.get(wallet.id) ?? [],
-            }),
-    }))
+    .map((wallet) => {
+      const saisis = saisisParWallet.get(wallet.id) ?? []
+
+      return {
+        wallet,
+        jours:
+          // Plancher atteint : le wallet attend un verdict, pas un relevé.
+          wallet.testStartedAt === null || saisis.length >= JOURS_MINIMUM_TEST
+            ? []
+            : joursManquants({
+                debut: wallet.testStartedAt,
+                jusqua: aujourdhui,
+                saisis,
+              }),
+      }
+    })
     .filter((entree) => entree.jours.length > 0)
 }

@@ -12,6 +12,8 @@ export default defineConfig({
     alias: {
       // `server-only` lève une erreur dès l'import hors contexte serveur React.
       'server-only': here('./test/stubs/server-only.ts'),
+      // `next/cache` exige le contexte d'une requête : voir le bouchon.
+      'next/cache': here('./test/stubs/next-cache.ts'),
       '@': here('./'),
     },
   },
