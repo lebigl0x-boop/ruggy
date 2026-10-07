@@ -11,6 +11,7 @@ import {
   MatinIcon,
   PortefeuilleIcon,
 } from './ui/icons'
+import { SelecteurTheme } from './ui/theme'
 
 /**
  * La coquille de l'application.
@@ -140,6 +141,8 @@ export function AppShell({
               </>
             )}
           </div>
+
+          <SelecteurTheme replie={replie} />
 
           {/* Le compte, et la sortie. En POST : un GET se déclencherait au
               moindre préchargement de lien. */}

@@ -27,14 +27,23 @@ function estPublic(chemin: string): boolean {
 
 export async function middleware(requete: NextRequest) {
   const reponse = NextResponse.next({ request: requete })
-  const supabase = clientMiddleware(requete, reponse)
 
-  // `getUser()` et non `getSession()` : le premier vérifie le jeton auprès de
-  // Supabase, le second se contente de lire un cookie que le navigateur
-  // pourrait avoir fabriqué.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user: Awaited<ReturnType<typeof lireUtilisateur>>
+
+  try {
+    user = await lireUtilisateur(requete, reponse)
+  } catch (cause) {
+    // Mal configuré : on refuse l'accès plutôt que de laisser passer, mais on
+    // le dit. Une exception non rattrapée ici ne donne qu'un
+    // « MIDDLEWARE_INVOCATION_FAILED » qui n'aide personne à comprendre.
+    console.error('Middleware : authentification indisponible.', cause)
+    return new NextResponse(
+      'Configuration incomplète : NEXT_PUBLIC_SUPABASE_URL et ' +
+        'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY doivent être posées dans les ' +
+        'variables d’environnement du déploiement.',
+      { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8' } },
+    )
+  }
 
   const chemin = requete.nextUrl.pathname
   const autorise = user !== null
@@ -56,6 +65,26 @@ export async function middleware(requete: NextRequest) {
   }
 
   return reponse
+}
+
+/**
+ * Qui est devant l'écran, ou `null`.
+ *
+ * `getClaims()` et non `getSession()` : le second se contente de lire un
+ * cookie que le navigateur pourrait avoir fabriqué, le premier vérifie la
+ * signature du jeton.
+ *
+ * Et `getClaims()` plutôt que `getUser()` : à clés asymétriques, la
+ * vérification est locale, sans aller-retour vers Supabase — or ce code
+ * s'exécute à chaque requête, préchargements compris. Avec l'ancien secret
+ * partagé, la bibliothèque retombe d'elle-même sur un appel distant : jamais
+ * moins sûr, simplement moins rapide.
+ */
+async function lireUtilisateur(requete: NextRequest, reponse: NextResponse) {
+  const supabase = clientMiddleware(requete, reponse)
+  const { data, error } = await supabase.auth.getClaims()
+  if (error || !data) return null
+  return data.claims
 }
 
 export const config = {

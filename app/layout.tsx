@@ -24,6 +24,19 @@ export const viewport: Viewport = {
 // La base est lue à chaque requête : rien à mettre en cache sur une app locale.
 export const dynamic = 'force-dynamic'
 
+/**
+ * Pose le thème choisi avant le premier rendu.
+ *
+ * Sans ce script, une page réglée en clair s'afficherait d'abord en sombre —
+ * le temps que React démarre et lise le stockage local. Il s'exécute de
+ * manière bloquante, dans le `<head>`, ce qui est exactement ce qu'on veut
+ * ici : quelques microsecondes contre un clignotement visible.
+ */
+function ScriptTheme() {
+  const script = `try{var t=localStorage.getItem('ruggers-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}`
+  return <script dangerouslySetInnerHTML={{ __html: script }} />
+}
+
 export default async function RootLayout({
   children,
 }: {
@@ -39,7 +52,10 @@ export default async function RootLayout({
   // requête vers la base, qui n'a rien à dire à un visiteur.
   if (user === null) {
     return (
-      <html lang="fr">
+      <html lang="fr" suppressHydrationWarning>
+        <head>
+          <ScriptTheme />
+        </head>
         <body>{children}</body>
       </html>
     )
@@ -54,7 +70,10 @@ export default async function RootLayout({
   const journeesAFaire = file.reduce((total, entree) => total + entree.jours.length, 0)
 
   return (
-    <html lang="fr">
+    <html lang="fr" suppressHydrationWarning>
+      <head>
+        <ScriptTheme />
+      </head>
       <body>
         <AppShell
           journeesAFaire={journeesAFaire}

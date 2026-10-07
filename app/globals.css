@@ -1,18 +1,94 @@
 @import 'tailwindcss';
 
 /* ---------------------------------------------------------------------------
-   Graphite, un seul thème.
+   Deux thèmes, une seule grammaire.
 
-   L'app se regarde le matin, longtemps, sur des colonnes de chiffres : elle
-   est sombre et ne propose pas de clair. Les fonds sont des gris francs, sans
-   biais de teinte, pour que les seuls écarts de couleur de l'écran viennent
-   des chiffres.
+   Les fonds sont des gris francs, sans biais de teinte, pour que les seuls
+   écarts de couleur de l'écran viennent des chiffres. Rien de décoratif n'est
+   coloré : ce qui est actif se détache par contraste (`--c-accent`, clair sur
+   sombre et sombre sur clair), et la couleur ne dit que trois choses — un
+   gain, une perte, une décision qui attend.
 
-   Rien de décoratif n'est coloré. Ce qui est actif se détache en clair
-   (`--c-accent`) ; la couleur ne dit plus que trois choses : un gain, une
-   perte, une décision qui attend.
+   Les tons sémantiques ne sont pas les mêmes d'un thème à l'autre : un jade
+   qui tient sur du graphite devient illisible sur du blanc. Chaque thème a
+   les siens, calés pour rester lisibles sur leur propre fond.
+
+   Trois états à couvrir, pas deux : un choix explicite pose `data-theme` sur
+   la racine, et le réglage « système » n'en pose aucun — c'est alors
+   `prefers-color-scheme` qui tranche.
    --------------------------------------------------------------------------- */
+
+/* Thème clair — la valeur par défaut, celle du document non marqué. */
 :root {
+  color-scheme: light;
+
+  --c-bg: #f5f5f7;
+  --c-card: #ffffff;
+  --c-card-2: #eeeef1;
+  --c-text: #17171a;
+  --c-text-2: #5f6068;
+  --c-text-3: #8d8e97;
+  --c-separator: #e3e3e7;
+  --c-fill: #eeeef1;
+  --c-fill-2: #f2f2f5;
+  /* Pastille du contrôle segmenté : toujours plus contrastée que son rail. */
+  --c-segment: #ffffff;
+  --c-nav: rgba(245, 245, 247, 0.82);
+
+  /* L'identité n'a pas de teinte : ici, c'est le sombre qui ressort. */
+  --c-accent: #1b1b1f;
+  --c-accent-ink: #ffffff;
+  /* Fond d'un élément actif ou survolé, plus marqué que la carte qui le porte. */
+  --c-hi: #e4e4e9;
+
+  /* Sémantique, assombrie pour rester lisible sur du blanc. */
+  --c-green: #2f8257;
+  --c-red: #b4453d;
+  --c-orange: #926d1d;
+  /* Ardoise : mis sous surveillance, et la phase de test en cours. */
+  --c-blue: #5a6498;
+  --c-blue-soft: rgba(90, 100, 152, 0.12);
+  --c-gray: #70707a;
+
+  --c-dots: #e6e6ea;
+  --c-shadow: rgba(0, 0, 0, 0.08);
+}
+
+/* Thème sombre — appliqué par le système, sauf choix explicite du clair. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --c-bg: #0d0d0e;
+    --c-card: #151517;
+    --c-card-2: #1d1d20;
+    --c-text: #ededf0;
+    --c-text-2: #9a9aa2;
+    --c-text-3: #5e5e66;
+    --c-separator: #26262a;
+    --c-fill: #1d1d20;
+    --c-fill-2: #1c1c20;
+    --c-segment: #2a2a30;
+    --c-nav: rgba(13, 13, 14, 0.82);
+
+    --c-accent: #ededf0;
+    --c-accent-ink: #121214;
+    --c-hi: #26262b;
+
+    --c-green: #4ea97b;
+    --c-red: #d1584f;
+    --c-orange: #c99a3e;
+    --c-blue: #7b86b8;
+    --c-blue-soft: rgba(123, 134, 184, 0.16);
+    --c-gray: #7b7b84;
+
+    --c-dots: #1d1d20;
+    --c-shadow: rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Thème sombre — choisi à la main, quel que soit le réglage du système. */
+:root[data-theme='dark'] {
   color-scheme: dark;
 
   --c-bg: #0d0d0e;
@@ -24,25 +100,21 @@
   --c-separator: #26262a;
   --c-fill: #1d1d20;
   --c-fill-2: #1c1c20;
-  /* Pastille du contrôle segmenté : toujours plus claire que son rail. */
   --c-segment: #2a2a30;
   --c-nav: rgba(13, 13, 14, 0.82);
 
-  /* L'identité n'a pas de teinte : un bouton coloré ne voudrait rien dire. */
   --c-accent: #ededf0;
   --c-accent-ink: #121214;
-  /* Fond d'un élément actif ou survolé, plus clair que la carte qui le porte. */
   --c-hi: #26262b;
 
-  /* Sémantique, rabattue pour tenir sur du graphite sans piquer. */
   --c-green: #4ea97b;
   --c-red: #d1584f;
   --c-orange: #c99a3e;
-  /* Ardoise : mis sous surveillance, et la phase de test en cours. */
   --c-blue: #7b86b8;
   --c-blue-soft: rgba(123, 134, 184, 0.16);
   --c-gray: #7b7b84;
 
+  --c-dots: #1d1d20;
   --c-shadow: rgba(0, 0, 0, 0.5);
 }
 
@@ -101,7 +173,7 @@ body {
  * au lieu d'un aplat. Assez faible pour ne jamais disputer la lecture.
  */
 .pointille {
-  background-image: radial-gradient(circle at 1px 1px, #1d1d20 1px, transparent 0);
+  background-image: radial-gradient(circle at 1px 1px, var(--c-dots) 1px, transparent 0);
   background-size: 22px 22px;
 }
 

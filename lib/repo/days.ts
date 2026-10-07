@@ -138,12 +138,34 @@ export type FileDuMatin = {
  */
 export async function listFileDuMatin(aujourdhui: string): Promise<FileDuMatin[]> {
   const hier = jourPrecedent(aujourdhui)
-  const enTest = await listWalletsEnTest()
 
-  // Les journées de chaque wallet sont lues en parallèle : en série, la file
-  // du matin ferait un aller-retour par wallet suivi.
-  const entrees = await Promise.all(
-    enTest.map(async (wallet) => ({
+  // Les wallets en test et leurs journées d'un seul coup. Cette fonction
+  // tourne sur chaque page — c'est elle qui alimente la pastille du rail —
+  // et chaque requête supplémentaire coûte un aller-retour vers Supabase.
+  // La jointure est externe : un wallet dont le test vient de s'ouvrir n'a
+  // aucune journée, et doit malgré tout figurer dans la file.
+  const lignes = await db
+    .select({ wallet: wallets, day: walletDays.day })
+    .from(wallets)
+    .leftJoin(walletDays, eq(walletDays.walletId, wallets.id))
+    .where(eq(wallets.status, 'test'))
+    .orderBy(asc(wallets.testStartedAt), asc(wallets.label))
+
+  const enTest: Wallet[] = []
+  const saisisParWallet = new Map<string, string[]>()
+
+  for (const ligne of lignes) {
+    const saisis = saisisParWallet.get(ligne.wallet.id)
+    if (saisis === undefined) {
+      enTest.push(mapWallet(ligne.wallet))
+      saisisParWallet.set(ligne.wallet.id, ligne.day === null ? [] : [ligne.day])
+    } else if (ligne.day !== null) {
+      saisis.push(ligne.day)
+    }
+  }
+
+  return enTest
+    .map((wallet) => ({
       wallet,
       jours:
         wallet.testStartedAt === null
@@ -151,10 +173,8 @@ export async function listFileDuMatin(aujourdhui: string): Promise<FileDuMatin[]
           : joursManquants({
               debut: wallet.testStartedAt,
               jusqua: hier,
-              saisis: (await listDays(wallet.id)).map((jour) => jour.day),
+              saisis: saisisParWallet.get(wallet.id) ?? [],
             }),
-    })),
-  )
-
-  return entrees.filter((entree) => entree.jours.length > 0)
+    }))
+    .filter((entree) => entree.jours.length > 0)
 }

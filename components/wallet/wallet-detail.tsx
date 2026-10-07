@@ -291,11 +291,11 @@ export function WalletDetail({
           lignes collantes. L'ancien bandeau de titre coûtait 120 px de
           hauteur avant le premier chiffre. */}
       <header className="sticky top-0 z-20 border-b border-separator bg-nav backdrop-blur-xl">
-        <div className="flex items-center gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1.5 md:px-4">
+        <div className="flex items-center gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 sm:px-4 md:px-6">
           <Link
             href="/wallets"
             aria-label="Retour aux wallets"
-            className="-ml-0.5 flex shrink-0 items-center gap-1 rounded-full bg-fill px-2.5 py-1 text-[12.5px] text-ink-2 transition hover:bg-hi hover:text-ink active:opacity-60"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-fill px-2.5 py-1 text-[12.5px] text-ink-2 transition hover:bg-hi hover:text-ink active:opacity-60"
           >
             <ChevronLeftIcon className="h-[15px] w-[15px]" />
             <span className="hidden sm:inline">Wallets</span>
@@ -331,7 +331,7 @@ export function WalletDetail({
           value={actif}
           onChange={setOnglet}
           ariaLabel="Sections du wallet"
-          className="border-b-0 px-1 md:px-2"
+          className="px-3 pb-2.5 sm:px-4 md:px-6"
         />
       </header>
 
@@ -371,7 +371,7 @@ export function WalletDetail({
         </div>
 
         {erreur !== null ? (
-          <p className="mb-4 rounded-card bg-card px-4 py-3 text-[15px] text-red">
+          <p className="mb-4 rounded-card border border-separator bg-card px-4 py-3 text-[15px] text-red">
             {erreur}
           </p>
         ) : null}
@@ -460,7 +460,7 @@ export function WalletDetail({
         {actif === 'journees' && enTest ? (
           <>
             {test.days.length > 0 ? (
-              <section className="mb-4 rounded-card bg-card px-4 pt-4 pb-3">
+              <section className="mb-4 rounded-card border border-separator bg-card px-4 pt-4 pb-3">
                 <h2 className="text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
                   Résultat par journée
                 </h2>
