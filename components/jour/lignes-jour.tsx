@@ -1,5 +1,7 @@
 'use client'
 
+import { useRef } from 'react'
+
 import type { ReportRow, Strategy } from '@/lib/compute'
 import { formatPercent, formatPercentExact, formatSol } from '@/lib/format'
 import { parsePerteToken } from '@/lib/validation'
@@ -29,6 +31,43 @@ export type LigneJour = {
 
 export type PatchLigne = Partial<Omit<LigneJour, 'cle'>>
 
+/**
+ * Les champs d'une ligne, dans l'ordre de tabulation. Sert à retrouver le
+ * même champ sur la ligne voisine quand on monte ou on descend.
+ */
+const CHAMPS = ['nom', 'gain', 'perte', 'delai', 'pris'] as const
+type Champ = (typeof CHAMPS)[number]
+
+/**
+ * Monte ou descend d'une ligne, sur le même champ.
+ *
+ * Les flèches sont le geste du tableur : dans une colonne de quinze gains,
+ * reprendre la souris à chaque ligne est ce qui rend la saisie pénible. On
+ * passe par le DOM plutôt que par une forêt de références — une ligne peut
+ * disparaître sous les doigts, un attribut survit à ça.
+ */
+function deplacer(
+  conteneur: HTMLElement | null,
+  champ: Champ,
+  sens: 1 | -1,
+  cleCourante: string,
+): boolean {
+  if (conteneur === null) return false
+
+  const cibles = Array.from(
+    conteneur.querySelectorAll<HTMLElement>(`[data-champ="${champ}"]`),
+  )
+  const index = cibles.findIndex(
+    (element) => element.dataset.ligne === cleCourante,
+  )
+  const voisin = cibles[index + sens]
+  if (index === -1 || voisin === undefined) return false
+
+  voisin.focus()
+  if (voisin instanceof HTMLInputElement) voisin.select()
+  return true
+}
+
 export function LignesJour({
   lignes,
   rows,
@@ -45,8 +84,38 @@ export function LignesJour({
   onDelete: (cle: string) => void
   onAdd: () => void
 }) {
+  const conteneur = useRef<HTMLDivElement | null>(null)
+
+  /**
+   * Les flèches déplacent le curseur d'une ligne à l'autre, Entrée descend.
+   * Posé sur le conteneur plutôt que sur chaque champ : un seul écouteur,
+   * et les lignes ajoutées en cours de route en héritent.
+   */
+  function auClavier(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter') {
+      return
+    }
+    // ⌘↵ valide la journée, au niveau de la carte : le laisser aussi
+    // descendre d'une ligne ferait deux choses pour une frappe.
+    if (event.metaKey || event.ctrlKey || event.altKey) return
+
+    const cible = event.target
+    if (!(cible instanceof HTMLElement)) return
+
+    const champ = cible.dataset.champ as Champ | undefined
+    const ligne = cible.dataset.ligne
+    if (champ === undefined || ligne === undefined) return
+
+    // Entrée sur la case à cocher la bascule : c'est le comportement natif
+    // d'un bouton, on ne le vole pas.
+    if (event.key === 'Enter' && champ === 'pris') return
+
+    const sens = event.key === 'ArrowUp' ? -1 : 1
+    if (deplacer(conteneur.current, champ, sens, ligne)) event.preventDefault()
+  }
+
   return (
-    <div>
+    <div ref={conteneur} onKeyDown={auClavier}>
       {/* En-têtes : desktop seulement, les cartes mobiles ont leurs libellés. */}
       <div className="hidden items-center gap-3 border-b border-separator px-4 py-2 text-[12px] text-ink-2 md:flex">
         <span className="w-6 shrink-0">#</span>
@@ -55,7 +124,7 @@ export function LignesJour({
         <span className="w-16 shrink-0 text-right">Perte %</span>
         <span className="w-14 shrink-0 text-right">Délai</span>
         <span className="w-12 shrink-0 text-center">Pris</span>
-        <span className="w-24 shrink-0 text-right">Résultat</span>
+        <span className="w-32 shrink-0 text-right">Résultat</span>
         <span className="w-7 shrink-0" aria-hidden />
       </div>
 
@@ -74,7 +143,7 @@ export function LignesJour({
       <button
         type="button"
         onClick={onAdd}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-[17px] text-blue transition hover:bg-fill-2 active:bg-fill"
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-[17px] font-medium text-ink transition hover:bg-fill-2 active:bg-fill"
       >
         <PlusIcon className="h-[17px] w-[17px]" />
         Ajouter un token
@@ -123,6 +192,8 @@ function Ligne({
         <span className="min-w-0 flex-1 md:order-2">
           <TextField
             ariaLabel={`Nom du token ${numero}`}
+            dataChamp="nom"
+            dataLigne={ligne.cle}
             value={ligne.name ?? ''}
             onChange={(value) =>
               onChange(ligne.cle, { name: value.trim() === '' ? null : value })
@@ -136,11 +207,12 @@ function Ligne({
           <CasePris
             coche={ligne.pris}
             numero={numero}
+            cle={ligne.cle}
             onChange={(pris) => onChange(ligne.cle, { pris })}
           />
         </span>
 
-        <span className="w-[72px] shrink-0 text-right md:order-7 md:w-24">
+        <span className="w-[72px] shrink-0 text-right md:order-7 md:w-32">
           <Resultat row={row} pris={ligne.pris} />
         </span>
 
@@ -164,6 +236,8 @@ function Ligne({
         <Champ label="Gain" className="md:order-3 md:w-16">
           <NumberField
             ariaLabel={`Gain du token ${numero} en pourcentage`}
+            dataChamp="gain"
+            dataLigne={ligne.cle}
             value={ligne.gain}
             onChange={(gain) => onChange(ligne.cle, { gain })}
           />
@@ -172,6 +246,8 @@ function Ligne({
         <Champ label="Perte" className="md:order-4 md:w-16">
           <NumberField
             ariaLabel={`Perte du token ${numero} en pourcentage`}
+            dataChamp="perte"
+            dataLigne={ligne.cle}
             value={ligne.perteRug}
             placeholder={String(strategy.perteRug).replace('.', ',')}
             normalize={parsePerteToken}
@@ -182,6 +258,8 @@ function Ligne({
         <Champ label="Délai" className="md:order-5 md:w-14">
           <NumberField
             ariaLabel={`Délai avant dump du token ${numero} en minutes`}
+            dataChamp="delai"
+            dataLigne={ligne.cle}
             value={ligne.delay}
             onChange={(delay) => onChange(ligne.cle, { delay })}
           />
@@ -218,7 +296,7 @@ function Resultat({ row, pris }: { row: ReportRow; pris: boolean }) {
       <span className={cn('text-[15px] font-medium tabular-nums', ton)}>
         {pris ? formatSol(resultat.sol) : `(${formatSol(resultat.sol)})`}
       </span>
-      <span className="hidden text-[12px] text-ink-3 tabular-nums md:block">
+      <span className="hidden text-[12px] text-ink-3 tabular-nums md:ml-1.5 md:inline">
         {pris ? formatPercentExact(resultat.percent, { sign: true }) : 'non pris'}
       </span>
     </span>
@@ -228,10 +306,12 @@ function Resultat({ row, pris }: { row: ReportRow; pris: boolean }) {
 function CasePris({
   coche,
   numero,
+  cle,
   onChange,
 }: {
   coche: boolean
   numero: number
+  cle: string
   onChange: (coche: boolean) => void
 }) {
   return (
@@ -240,11 +320,13 @@ function CasePris({
       role="checkbox"
       aria-checked={coche}
       aria-label={`Token ${numero} pris`}
+      data-champ="pris"
+      data-ligne={cle}
       onClick={() => onChange(!coche)}
       className={cn(
         'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] border transition active:scale-90',
         coche
-          ? 'border-blue bg-blue text-white'
+          ? 'border-green bg-green text-bg'
           : 'border-separator bg-card-2 text-transparent hover:border-ink-3',
       )}
     >

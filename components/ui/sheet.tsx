@@ -65,7 +65,7 @@ export function Sheet({
           <button
             type="button"
             onClick={onClose}
-            className="min-w-[60px] text-left text-[17px] text-blue transition active:opacity-50"
+            className="min-w-[60px] text-left text-[17px] font-medium text-ink transition active:opacity-50"
           >
             Annuler
           </button>

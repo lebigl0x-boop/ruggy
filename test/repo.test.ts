@@ -1,24 +1,23 @@
 /**
- * Tests de la couche d'accès aux données, sur une base jetable.
+ * Tests de la couche d'accès aux données, sur un Postgres jetable.
  *
- * `RUGGERS_DB_PATH` doit être posé avant le premier import de lib/db, d'où
- * le `vi.hoisted` : c'est lui qui s'exécute en premier.
+ * PGlite fait tourner un vrai Postgres en mémoire, dans le processus : la
+ * suite reste autonome — ni conteneur, ni base distante — tout en exécutant
+ * le SQL réellement envoyé en production.
+ *
+ * `DATABASE_URL` doit être absente au premier import de lib/db : c'est elle
+ * qui décide du pilote, d'où le `vi.hoisted`, exécuté en premier.
  */
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { rmSync } from 'node:fs'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { dossier } = await vi.hoisted(async () => {
-  const { mkdtempSync } = await import('node:fs')
-  const { tmpdir } = await import('node:os')
-  const { join } = await import('node:path')
-
-  const dossier = mkdtempSync(join(tmpdir(), 'ruggers-test-'))
-  process.env.RUGGERS_DB_PATH = join(dossier, 'test.db')
-  return { dossier }
+await vi.hoisted(async () => {
+  delete process.env.DATABASE_URL
+  process.env.RUGGERS_DB_MEMOIRE = '1'
 })
 
 const { db } = await import('@/lib/db')
 const { tokens, walletDays, wallets } = await import('@/lib/db/schema')
+const { ensureSettingsRow } = await import('@/lib/db/seed')
 const walletsRepo = await import('@/lib/repo/wallets')
 const daysRepo = await import('@/lib/repo/days')
 const { toDayInputs } = await import('@/lib/repo/types')
@@ -37,12 +36,23 @@ function nouveauWallet(address = ADRESSE) {
   })
 }
 
-beforeEach(() => {
-  db.delete(tokens).run()
-  db.delete(walletDays).run()
-  db.delete(wallets).run()
-  settingsRepo.updateSolPrice(null)
-  settingsRepo.updateDefaults({
+// Le schéma est créé une fois : PGlite démarre sur une base vide.
+beforeAll(async () => {
+  const { migrate } = await import('drizzle-orm/pglite/migrator')
+  const { resolve } = await import('node:path')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await migrate(db as any, {
+    migrationsFolder: resolve(process.cwd(), 'lib/db/migrations'),
+  })
+  await ensureSettingsRow(db)
+})
+
+beforeEach(async () => {
+  await db.delete(tokens)
+  await db.delete(walletDays)
+  await db.delete(wallets)
+  await settingsRepo.updateSolPrice(null)
+  await settingsRepo.updateDefaults({
     mise: 0.1,
     objectif: 100,
     perteRug: 90,
@@ -51,13 +61,13 @@ beforeEach(() => {
   })
 })
 
-afterAll(() => {
-  rmSync(dossier, { recursive: true, force: true })
+afterAll(async () => {
+  // PGlite vit en mémoire : il disparaît avec le processus, rien à effacer.
 })
 
 describe('createWallet', () => {
-  it('crée le wallet avec 10 lignes de tokens vides', () => {
-    const wallet = nouveauWallet()
+  it('crée le wallet avec 10 lignes de tokens vides', async () => {
+    const wallet = await nouveauWallet()
     expect(wallet.tokens).toHaveLength(walletsRepo.LIGNES_INITIALES)
     expect(wallet.tokens.map((t) => t.position)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     expect(
@@ -65,15 +75,15 @@ describe('createWallet', () => {
     ).toBe(true)
   })
 
-  it('copie les réglages par défaut du moment', () => {
-    settingsRepo.updateDefaults({
+  it('copie les réglages par défaut du moment', async () => {
+    await settingsRepo.updateDefaults({
       mise: 0.5,
       objectif: 200,
       perteRug: 80,
       frais: 0.005,
       tauxVise: 40,
     })
-    expect(nouveauWallet().strategy).toEqual({
+    expect((await nouveauWallet()).strategy).toEqual({
       mise: 0.5,
       objectif: 200,
       perteRug: 80,
@@ -82,47 +92,47 @@ describe('createWallet', () => {
     })
   })
 
-  it('ne réécrit pas l’historique quand les défauts changent ensuite', () => {
-    const wallet = nouveauWallet()
-    settingsRepo.updateDefaults({
+  it('ne réécrit pas l’historique quand les défauts changent ensuite', async () => {
+    const wallet = await nouveauWallet()
+    await settingsRepo.updateDefaults({
       mise: 9,
       objectif: 9,
       perteRug: 9,
       frais: 9,
       tauxVise: 9,
     })
-    expect(walletsRepo.getWallet(wallet.id)?.strategy.mise).toBe(0.1)
+    expect((await walletsRepo.getWallet(wallet.id))?.strategy.mise).toBe(0.1)
   })
 
-  it('refuse deux fois la même adresse', () => {
-    nouveauWallet()
-    expect(() => nouveauWallet()).toThrow()
+  it('refuse deux fois la même adresse', async () => {
+    await nouveauWallet()
+    await expect(nouveauWallet()).rejects.toThrow()
   })
 
-  it('marque la source comme manuelle', () => {
-    expect(nouveauWallet().source).toBe('manual')
+  it('marque la source comme manuelle', async () => {
+    expect((await nouveauWallet()).source).toBe('manual')
   })
 })
 
 describe('listWallets', () => {
-  it('trie par date d’analyse décroissante', () => {
-    walletsRepo.createWallet({
+  it('trie par date d’analyse décroissante', async () => {
+    await walletsRepo.createWallet({
       label: 'Ancien',
       address: ADRESSE,
       analyzedAt: '2026-01-01',
     })
-    walletsRepo.createWallet({
+    await walletsRepo.createWallet({
       label: 'Récent',
       address: AUTRE_ADRESSE,
       analyzedAt: '2026-10-05',
     })
-    expect(walletsRepo.listWallets().map((w) => w.label)).toEqual(['Récent', 'Ancien'])
+    expect((await walletsRepo.listWallets()).map((w) => w.label)).toEqual(['Récent', 'Ancien'])
   })
 
-  it('rattache ses tokens à chaque wallet', () => {
-    nouveauWallet()
-    nouveauWallet(AUTRE_ADRESSE)
-    const liste = walletsRepo.listWallets()
+  it('rattache ses tokens à chaque wallet', async () => {
+    await nouveauWallet()
+    await nouveauWallet(AUTRE_ADRESSE)
+    const liste = await walletsRepo.listWallets()
     expect(liste).toHaveLength(2)
     expect(liste.every((w) => w.tokens.length === 10)).toBe(true)
     expect(liste.every((w) => w.tokens.every((t) => t.walletId === w.id))).toBe(true)
@@ -130,97 +140,97 @@ describe('listWallets', () => {
 })
 
 describe('updateWallet', () => {
-  it('modifie un champ sans toucher aux autres', () => {
-    const wallet = nouveauWallet()
-    walletsRepo.updateWallet(wallet.id, { label: 'Nouveau nom' })
-    const relu = walletsRepo.getWallet(wallet.id)
+  it('modifie un champ sans toucher aux autres', async () => {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, { label: 'Nouveau nom' })
+    const relu = await walletsRepo.getWallet(wallet.id)
     expect(relu?.label).toBe('Nouveau nom')
     expect(relu?.address).toBe(ADRESSE)
   })
 
-  it('modifie une partie de la stratégie seulement', () => {
-    const wallet = nouveauWallet()
-    walletsRepo.updateWallet(wallet.id, { strategy: { objectif: 250 } })
-    const relu = walletsRepo.getWallet(wallet.id)
+  it('modifie une partie de la stratégie seulement', async () => {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, { strategy: { objectif: 250 } })
+    const relu = await walletsRepo.getWallet(wallet.id)
     expect(relu?.strategy.objectif).toBe(250)
     expect(relu?.strategy.perteRug).toBe(90)
   })
 
-  it('pose et retire le tag manuel', () => {
-    const wallet = nouveauWallet()
-    walletsRepo.updateWallet(wallet.id, { tagOverride: 'surveiller' })
-    expect(walletsRepo.getWallet(wallet.id)?.tagOverride).toBe('surveiller')
-    walletsRepo.updateWallet(wallet.id, { tagOverride: null })
-    expect(walletsRepo.getWallet(wallet.id)?.tagOverride).toBeNull()
+  it('pose et retire le tag manuel', async () => {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, { tagOverride: 'surveiller' })
+    expect((await walletsRepo.getWallet(wallet.id))?.tagOverride).toBe('surveiller')
+    await walletsRepo.updateWallet(wallet.id, { tagOverride: null })
+    expect((await walletsRepo.getWallet(wallet.id))?.tagOverride).toBeNull()
   })
 })
 
 describe('deleteWallet', () => {
-  it('emporte les tokens avec lui', () => {
-    const wallet = nouveauWallet()
-    walletsRepo.deleteWallet(wallet.id)
-    expect(walletsRepo.getWallet(wallet.id)).toBeNull()
-    expect(tokensRepo.listTokens(wallet.id)).toHaveLength(0)
+  it('emporte les tokens avec lui', async () => {
+    const wallet = await nouveauWallet()
+    await walletsRepo.deleteWallet(wallet.id)
+    expect(await walletsRepo.getWallet(wallet.id)).toBeNull()
+    expect(await tokensRepo.listTokens(wallet.id)).toHaveLength(0)
   })
 })
 
 describe('tokens', () => {
-  it('ajoute un token à la suite', () => {
-    const wallet = nouveauWallet()
-    const token = tokensRepo.createToken(wallet.id)
+  it('ajoute un token à la suite', async () => {
+    const wallet = await nouveauWallet()
+    const token = await tokensRepo.createToken(wallet.id)
     expect(token.position).toBe(11)
-    expect(tokensRepo.listTokens(wallet.id)).toHaveLength(11)
+    expect(await tokensRepo.listTokens(wallet.id)).toHaveLength(11)
   })
 
-  it('met à jour un token sans effacer le reste', () => {
-    const wallet = nouveauWallet()
+  it('met à jour un token sans effacer le reste', async () => {
+    const wallet = await nouveauWallet()
     const premier = wallet.tokens[0]!
-    tokensRepo.updateToken(premier.id, { gain: 150, name: 'PEPE' })
-    tokensRepo.updateToken(premier.id, { perteRug: 65 })
+    await tokensRepo.updateToken(premier.id, { gain: 150, name: 'PEPE' })
+    await tokensRepo.updateToken(premier.id, { perteRug: 65 })
 
-    const relu = tokensRepo.listTokens(wallet.id)[0]!
+    const relu = (await tokensRepo.listTokens(wallet.id))[0]!
     expect(relu.gain).toBe(150)
     expect(relu.name).toBe('PEPE')
     expect(relu.perteRug).toBe(65)
   })
 
-  it('bascule un token en « pas pris »', () => {
-    const wallet = nouveauWallet()
-    const premier = tokensRepo.listTokens(wallet.id)[0]!
+  it('bascule un token en « pas pris »', async () => {
+    const wallet = await nouveauWallet()
+    const premier = (await tokensRepo.listTokens(wallet.id))[0]!
 
-    tokensRepo.updateToken(premier.id, { pris: false })
-    expect(tokensRepo.listTokens(wallet.id)[0]!.pris).toBe(false)
+    await tokensRepo.updateToken(premier.id, { pris: false })
+    expect((await tokensRepo.listTokens(wallet.id))[0]!.pris).toBe(false)
 
-    tokensRepo.updateToken(premier.id, { pris: true })
-    expect(tokensRepo.listTokens(wallet.id)[0]!.pris).toBe(true)
+    await tokensRepo.updateToken(premier.id, { pris: true })
+    expect((await tokensRepo.listTokens(wallet.id))[0]!.pris).toBe(true)
   })
 
-  it('accepte de remettre un gain à vide', () => {
-    const wallet = nouveauWallet()
+  it('accepte de remettre un gain à vide', async () => {
+    const wallet = await nouveauWallet()
     const premier = wallet.tokens[0]!
-    tokensRepo.updateToken(premier.id, { gain: 150 })
-    tokensRepo.updateToken(premier.id, { gain: null })
-    expect(tokensRepo.listTokens(wallet.id)[0]!.gain).toBeNull()
+    await tokensRepo.updateToken(premier.id, { gain: 150 })
+    await tokensRepo.updateToken(premier.id, { gain: null })
+    expect((await tokensRepo.listTokens(wallet.id))[0]!.gain).toBeNull()
   })
 
-  it('distingue une perte nulle d’une perte absente', () => {
-    const wallet = nouveauWallet()
+  it('distingue une perte nulle d’une perte absente', async () => {
+    const wallet = await nouveauWallet()
     const premier = wallet.tokens[0]!
-    tokensRepo.updateToken(premier.id, { perteRug: 0 })
-    expect(tokensRepo.listTokens(wallet.id)[0]!.perteRug).toBe(0)
-    tokensRepo.updateToken(premier.id, { perteRug: null })
-    expect(tokensRepo.listTokens(wallet.id)[0]!.perteRug).toBeNull()
+    await tokensRepo.updateToken(premier.id, { perteRug: 0 })
+    expect((await tokensRepo.listTokens(wallet.id))[0]!.perteRug).toBe(0)
+    await tokensRepo.updateToken(premier.id, { perteRug: null })
+    expect((await tokensRepo.listTokens(wallet.id))[0]!.perteRug).toBeNull()
   })
 
-  it('supprime un token', () => {
-    const wallet = nouveauWallet()
-    tokensRepo.deleteToken(wallet.tokens[0]!.id)
-    expect(tokensRepo.listTokens(wallet.id)).toHaveLength(9)
+  it('supprime un token', async () => {
+    const wallet = await nouveauWallet()
+    await tokensRepo.deleteToken(wallet.tokens[0]!.id)
+    expect(await tokensRepo.listTokens(wallet.id)).toHaveLength(9)
   })
 
-  it('sait insérer des tokens venus d’un import automatique', () => {
-    const wallet = nouveauWallet()
-    const crees = tokensRepo.createTokens(
+  it('sait insérer des tokens venus d’un import automatique', async () => {
+    const wallet = await nouveauWallet()
+    const crees = await tokensRepo.createTokens(
       wallet.id,
       [{ gain: 150, mint: 'MINT1' }, { gain: 20, perteRug: 90 }],
       { source: 'helius' },
@@ -231,28 +241,28 @@ describe('tokens', () => {
 })
 
 describe('settings', () => {
-  it('existe dès l’ouverture de la base', () => {
-    expect(settingsRepo.getSettings().defaults.mise).toBe(0.1)
+  it('existe dès l’ouverture de la base', async () => {
+    expect((await settingsRepo.getSettings()).defaults.mise).toBe(0.1)
   })
 
-  it('retient le prix du SOL', () => {
-    settingsRepo.updateSolPrice(185.5)
-    expect(settingsRepo.getSettings().solPriceEur).toBe(185.5)
-    settingsRepo.updateSolPrice(null)
-    expect(settingsRepo.getSettings().solPriceEur).toBeNull()
+  it('retient le prix du SOL', async () => {
+    await settingsRepo.updateSolPrice(185.5)
+    expect((await settingsRepo.getSettings()).solPriceEur).toBe(185.5)
+    await settingsRepo.updateSolPrice(null)
+    expect((await settingsRepo.getSettings()).solPriceEur).toBeNull()
   })
 })
 
 describe('journées de test', () => {
-  function enTest(debut = '2026-10-01') {
-    const wallet = nouveauWallet()
-    walletsRepo.updateWallet(wallet.id, { status: 'test', testStartedAt: debut })
+  async function enTest(debut = '2026-10-01') {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, { status: 'test', testStartedAt: debut })
     return wallet.id
   }
 
-  it('enregistre une journée et ses tokens d’un bloc', () => {
-    const id = enTest()
-    const jour = daysRepo.saveDay({
+  it('enregistre une journée et ses tokens d’un bloc', async () => {
+    const id = await enTest()
+    const jour = await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
@@ -261,191 +271,191 @@ describe('journées de test', () => {
 
     expect(jour.state).toBe('actif')
 
-    const wallet = walletsRepo.getWallet(id)!
+    const wallet = (await walletsRepo.getWallet(id))!
     const duJour = wallet.tokens.filter((t) => t.dayId === jour.id)
     expect(duJour).toHaveLength(2)
     expect(duJour.every((t) => t.phase === 'test')).toBe(true)
   })
 
-  it('retient les tokens écartés d’une journée', () => {
-    const id = enTest()
-    const jour = daysRepo.saveDay({
+  it('retient les tokens écartés d’une journée', async () => {
+    const id = await enTest()
+    const jour = await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 150 }, { gain: 20, pris: false }],
     })
 
-    const duJour = walletsRepo
-      .getWallet(id)!
-      .tokens.filter((t) => t.dayId === jour.id)
+    const duJour = (await walletsRepo.getWallet(id))!.tokens.filter(
+      (t) => t.dayId === jour.id,
+    )
     expect(duJour.map((t) => t.pris)).toEqual([true, false])
   })
 
-  it('prend le token par défaut quand rien n’est précisé', () => {
+  it('prend le token par défaut quand rien n’est précisé', async () => {
     // Les relevés d'avant le filtre doivent garder les chiffres qu'ils avaient.
-    const id = enTest()
-    const jour = daysRepo.saveDay({
+    const id = await enTest()
+    const jour = await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 150 }],
     })
 
-    const duJour = walletsRepo
-      .getWallet(id)!
-      .tokens.filter((t) => t.dayId === jour.id)
+    const duJour = (await walletsRepo.getWallet(id))!.tokens.filter(
+      (t) => t.dayId === jour.id,
+    )
     expect(duJour[0]!.pris).toBe(true)
   })
 
-  it('n’ajoute pas les tokens de test à l’échantillon de screening', () => {
+  it('n’ajoute pas les tokens de test à l’échantillon de screening', async () => {
     // Les deux lots cohabitent dans la même table mais ne se mélangent jamais
     // dans les bilans.
-    const id = enTest()
-    daysRepo.saveDay({
+    const id = await enTest()
+    await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 150 }],
     })
 
-    const wallet = walletsRepo.getWallet(id)!
+    const wallet = (await walletsRepo.getWallet(id))!
     expect(wallet.tokens.filter((t) => t.phase === 'screening')).toHaveLength(
       walletsRepo.LIGNES_INITIALES,
     )
     expect(wallet.tokens.filter((t) => t.phase === 'test')).toHaveLength(1)
   })
 
-  it('remplace le contenu quand on ré-enregistre la journée', () => {
-    const id = enTest()
-    daysRepo.saveDay({
+  it('remplace le contenu quand on ré-enregistre la journée', async () => {
+    const id = await enTest()
+    await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 150 }, { gain: 20 }],
     })
-    const jour = daysRepo.saveDay({
+    const jour = await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 300 }],
     })
 
-    expect(daysRepo.listDays(id)).toHaveLength(1)
-    const duJour = walletsRepo
-      .getWallet(id)!
-      .tokens.filter((t) => t.dayId === jour.id)
+    expect(await daysRepo.listDays(id)).toHaveLength(1)
+    const duJour = (await walletsRepo.getWallet(id))!.tokens.filter(
+      (t) => t.dayId === jour.id,
+    )
     expect(duJour.map((t) => t.gain)).toEqual([300])
   })
 
-  it('vide la journée quand on la passe en inactive', () => {
-    const id = enTest()
-    daysRepo.saveDay({
+  it('vide la journée quand on la passe en inactive', async () => {
+    const id = await enTest()
+    await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 150 }],
     })
-    daysRepo.saveDay({
+    await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'inactif',
       tokens: [],
     })
 
-    const wallet = walletsRepo.getWallet(id)!
+    const wallet = (await walletsRepo.getWallet(id))!
     expect(wallet.days[0]!.state).toBe('inactif')
     expect(wallet.tokens.filter((t) => t.phase === 'test')).toHaveLength(0)
   })
 
-  it('emporte les tokens de la journée quand on la supprime', () => {
-    const id = enTest()
-    const jour = daysRepo.saveDay({
+  it('emporte les tokens de la journée quand on la supprime', async () => {
+    const id = await enTest()
+    const jour = await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 150 }, { gain: 20 }],
     })
 
-    daysRepo.deleteDay(jour.id)
-    expect(daysRepo.listDays(id)).toHaveLength(0)
+    await daysRepo.deleteDay(jour.id)
+    expect(await daysRepo.listDays(id)).toHaveLength(0)
     expect(
-      walletsRepo.getWallet(id)!.tokens.filter((t) => t.phase === 'test'),
+      (await walletsRepo.getWallet(id))!.tokens.filter((t) => t.phase === 'test'),
     ).toHaveLength(0)
   })
 
-  it('rend les journées dans l’ordre du temps', () => {
-    const id = enTest()
+  it('rend les journées dans l’ordre du temps', async () => {
+    const id = await enTest()
     for (const day of ['2026-10-03', '2026-10-01', '2026-10-02']) {
-      daysRepo.saveDay({ walletId: id, day, state: 'inactif', tokens: [] })
+      await daysRepo.saveDay({ walletId: id, day, state: 'inactif', tokens: [] })
     }
-    expect(daysRepo.listDays(id).map((j) => j.day)).toEqual([
+    expect((await daysRepo.listDays(id)).map((j) => j.day)).toEqual([
       '2026-10-01',
       '2026-10-02',
       '2026-10-03',
     ])
   })
 
-  it('emporte journées et tokens quand le wallet est supprimé', () => {
-    const id = enTest()
-    daysRepo.saveDay({
+  it('emporte journées et tokens quand le wallet est supprimé', async () => {
+    const id = await enTest()
+    await daysRepo.saveDay({
       walletId: id,
       day: '2026-10-01',
       state: 'actif',
       tokens: [{ gain: 150 }],
     })
 
-    walletsRepo.deleteWallet(id)
-    expect(daysRepo.listDays(id)).toHaveLength(0)
-    expect(db.select().from(tokens).all()).toHaveLength(0)
+    await walletsRepo.deleteWallet(id)
+    expect(await daysRepo.listDays(id)).toHaveLength(0)
+    expect(await db.select().from(tokens)).toHaveLength(0)
   })
 })
 
 describe('file du matin', () => {
-  it('réclame les journées manquantes jusqu’à la veille', () => {
-    const wallet = nouveauWallet()
-    walletsRepo.updateWallet(wallet.id, {
+  it('réclame les journées manquantes jusqu’à la veille', async () => {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, {
       status: 'test',
       testStartedAt: '2026-10-01',
     })
-    daysRepo.saveDay({
+    await daysRepo.saveDay({
       walletId: wallet.id,
       day: '2026-10-02',
       state: 'inactif',
       tokens: [],
     })
 
-    const file = daysRepo.listFileDuMatin('2026-10-05')
+    const file = await daysRepo.listFileDuMatin('2026-10-05')
     expect(file).toHaveLength(1)
     expect(file[0]!.jours).toEqual(['2026-10-01', '2026-10-03', '2026-10-04'])
   })
 
-  it('ignore les wallets qui ne sont pas en test', () => {
-    nouveauWallet()
-    expect(daysRepo.listFileDuMatin('2026-10-05')).toEqual([])
+  it('ignore les wallets qui ne sont pas en test', async () => {
+    await nouveauWallet()
+    expect(await daysRepo.listFileDuMatin('2026-10-05')).toEqual([])
   })
 
-  it('ne garde pas un wallet dont tout est saisi', () => {
-    const wallet = nouveauWallet()
-    walletsRepo.updateWallet(wallet.id, {
+  it('ne garde pas un wallet dont tout est saisi', async () => {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, {
       status: 'test',
       testStartedAt: '2026-10-04',
     })
-    daysRepo.saveDay({
+    await daysRepo.saveDay({
       walletId: wallet.id,
       day: '2026-10-04',
       state: 'actif',
       tokens: [{ gain: 150 }],
     })
-    expect(daysRepo.listFileDuMatin('2026-10-05')).toEqual([])
+    expect(await daysRepo.listFileDuMatin('2026-10-05')).toEqual([])
   })
 })
 
 describe('phase de test de bout en bout', () => {
   /** Quatre journées relevées, comme quatre matins de suite. */
-  function quatreMatins() {
-    const wallet = nouveauWallet()
-    walletsRepo.updateWallet(wallet.id, {
+  async function quatreMatins() {
+    const wallet = await nouveauWallet()
+    await walletsRepo.updateWallet(wallet.id, {
       status: 'test',
       testStartedAt: '2026-10-01',
     })
@@ -457,14 +467,14 @@ describe('phase de test de bout en bout', () => {
     }
 
     for (const [day, gains] of Object.entries(releves)) {
-      daysRepo.saveDay({
+      await daysRepo.saveDay({
         walletId: wallet.id,
         day,
         state: 'actif',
         tokens: gains.map((gain) => ({ gain })),
       })
     }
-    daysRepo.saveDay({
+    await daysRepo.saveDay({
       walletId: wallet.id,
       day: '2026-10-03',
       state: 'inactif',
@@ -474,8 +484,8 @@ describe('phase de test de bout en bout', () => {
     return wallet.id
   }
 
-  it('reconstitue les journées depuis la base dans le bon ordre', () => {
-    const wallet = walletsRepo.getWallet(quatreMatins())!
+  it('reconstitue les journées depuis la base dans le bon ordre', async () => {
+    const wallet = (await walletsRepo.getWallet(await quatreMatins()))!
     const jours = toDayInputs(wallet)
 
     expect(jours.map((j) => j.day)).toEqual([
@@ -488,8 +498,8 @@ describe('phase de test de bout en bout', () => {
     expect(jours[2]!.state).toBe('inactif')
   })
 
-  it('débloque le verdict au bout de quatre journées', () => {
-    const wallet = walletsRepo.getWallet(quatreMatins())!
+  it('débloque le verdict au bout de quatre journées', async () => {
+    const wallet = (await walletsRepo.getWallet(await quatreMatins()))!
     const rapport = computeTestReport(toDayInputs(wallet), wallet.strategy)
 
     expect(rapport.joursObserves).toBe(4)
@@ -499,10 +509,10 @@ describe('phase de test de bout en bout', () => {
     expect(rapport.verdictDisponible).toBe(true)
   })
 
-  it('tient le relevé de test à l’écart de l’échantillon de screening', () => {
+  it('tient le relevé de test à l’écart de l’échantillon de screening', async () => {
     // Les 10 lignes d'amorce restent au screening, vides : elles ne doivent
     // ni gonfler le bilan de test ni être gonflées par lui.
-    const wallet = walletsRepo.getWallet(quatreMatins())!
+    const wallet = (await walletsRepo.getWallet(await quatreMatins()))!
     const screening = wallet.tokens.filter((t) => t.phase === 'screening')
 
     expect(screening).toHaveLength(walletsRepo.LIGNES_INITIALES)
@@ -510,10 +520,10 @@ describe('phase de test de bout en bout', () => {
     expect(wallet.tokens.filter((t) => t.phase === 'test')).toHaveLength(11)
   })
 
-  it('ne réclame plus rien quand les quatre matins sont faits', () => {
-    const id = quatreMatins()
+  it('ne réclame plus rien quand les quatre matins sont faits', async () => {
+    const id = await quatreMatins()
     expect(
-      daysRepo.listFileDuMatin('2026-10-05').filter((e) => e.wallet.id === id),
+      (await daysRepo.listFileDuMatin('2026-10-05')).filter((e) => e.wallet.id === id),
     ).toEqual([])
   })
 })

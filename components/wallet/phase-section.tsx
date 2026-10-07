@@ -19,21 +19,33 @@ import { STATUS_LABELS, StatusBadge } from '../ui/status-badge'
  * journées n'est pas atteint : c'est la raison d'être du plancher.
  */
 export function PhaseSection({
+  walletId,
   status,
   testStartedAt,
   test,
   screeningN,
   screeningSeuil,
+  joursAFaire,
   onStart,
   onConclude,
   onReopen,
   onClassify,
 }: {
+  walletId: string
   status: WalletStatus
   testStartedAt: string | null
   test: TestReport
   screeningN: number
   screeningSeuil: number
+  /**
+   * Journées de ce wallet en attente de relevé.
+   *
+   * Un test lancé aujourd'hui n'a encore rien à relever : le relevé du matin
+   * porte sur la veille. Proposer d'aller saisir enverrait sur une file qui
+   * ne peut pas contenir ce wallet — et où c'est le premier venu qui
+   * s'ouvre.
+   */
+  joursAFaire: number
   onStart: () => void
   onConclude: (verdict: 'valide' | 'rejete') => void
   onReopen: () => void
@@ -45,7 +57,7 @@ export function PhaseSection({
   return (
     <>
       <section className="mb-6">
-        <h2 className="mb-2 px-4 text-[13px] tracking-wide text-ink-2 uppercase">
+        <h2 className="mb-2 text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
           Phase
         </h2>
 
@@ -76,13 +88,23 @@ export function PhaseSection({
 
           {status === 'test' ? (
             <>
-              <Link
-                href="/aujourdhui"
-                className="flex items-center gap-2 border-t border-separator px-4 py-3 text-[17px] text-blue transition hover:bg-fill-2 active:bg-fill"
-              >
-                Saisir une journée
-                <ChevronRightIcon className="ml-auto h-[17px] w-[17px] text-ink-3" />
-              </Link>
+              {joursAFaire > 0 ? (
+                // La file s'ouvre sur ce wallet-ci, pas sur le premier de
+                // la liste.
+                <Link
+                  href={`/?wallet=${walletId}`}
+                  className="flex items-center gap-2 border-t border-separator px-4 py-3 text-[17px] font-medium text-ink transition hover:bg-fill-2 active:bg-fill"
+                >
+                  Saisir {joursAFaire}{' '}
+                  {joursAFaire > 1 ? 'journées' : 'journée'}
+                  <ChevronRightIcon className="ml-auto h-[17px] w-[17px] text-ink-3" />
+                </Link>
+              ) : (
+                <p className="border-t border-separator px-4 py-3 text-[13px] text-ink-3">
+                  Rien à relever pour l’instant : le relevé du matin porte sur
+                  la veille.
+                </p>
+              )}
 
               <Action
                 onClick={() => setVerdictOuvert(true)}
@@ -220,7 +242,7 @@ function Action({
           ? 'cursor-not-allowed text-ink-3'
           : cn(
               'hover:bg-fill-2 active:bg-fill',
-              discret ? 'text-ink-2' : 'text-blue',
+              discret ? 'text-ink-2' : 'text-ink',
             ),
       )}
     >

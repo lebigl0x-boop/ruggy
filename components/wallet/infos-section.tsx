@@ -51,7 +51,7 @@ export function InfosSection({
               setCopie(true)
               setTimeout(() => setCopie(false), 1500)
             }}
-            className="inline-flex items-center gap-1 font-mono text-[15px] text-blue transition active:opacity-50"
+            className="inline-flex items-center gap-1 font-mono text-[15px] text-ink-2 underline decoration-separator underline-offset-4 transition hover:text-ink active:opacity-50"
             title={address}
           >
             {copie ? (

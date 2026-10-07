@@ -22,7 +22,7 @@ export function TagBadge({
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[13px] font-medium whitespace-nowrap',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-semibold whitespace-nowrap',
         TONS[tag],
         className,
       )}

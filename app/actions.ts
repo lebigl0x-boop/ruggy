@@ -49,12 +49,12 @@ export async function createWalletAction(input: {
   // La validation côté client sert au confort ; celle-ci fait foi.
   const issues = validateNewWallet({
     ...input,
-    existingAddresses: walletsRepo.listAddresses(),
+    existingAddresses: await walletsRepo.listAddresses(),
   })
 
   if (hasBlockingIssue(issues)) return { ok: false, issues }
 
-  const wallet = walletsRepo.createWallet({
+  const wallet = await walletsRepo.createWallet({
     label: input.label.trim(),
     address: input.address.trim(),
     analyzedAt: input.analyzedAt,
@@ -82,7 +82,7 @@ export async function updateWalletAction(
     clean.tagOverride = isTagOverride(patch.tagOverride) ? patch.tagOverride : null
   }
 
-  walletsRepo.updateWallet(id, clean)
+  await walletsRepo.updateWallet(id, clean)
   refresh()
 }
 
@@ -91,33 +91,33 @@ export async function updateStrategyAction(
   field: StrategyField,
   value: number | null,
 ): Promise<number> {
-  const wallet = walletsRepo.getWallet(id)
+  const wallet = await walletsRepo.getWallet(id)
   if (!wallet) throw new Error('Wallet introuvable.')
 
   // On rabat dans les bornes ici aussi : la valeur renvoyée est celle retenue.
   const retenu = clampStrategyField(field, value, wallet.strategy[field])
-  walletsRepo.updateWallet(id, { strategy: { [field]: retenu } })
+  await walletsRepo.updateWallet(id, { strategy: { [field]: retenu } })
   refresh()
   return retenu
 }
 
 /** Reprend les réglages d'un wallet comme modèle des prochains. */
 export async function useStrategyAsDefaultAction(id: string): Promise<Strategy> {
-  const wallet = walletsRepo.getWallet(id)
+  const wallet = await walletsRepo.getWallet(id)
   if (!wallet) throw new Error('Wallet introuvable.')
 
-  settingsRepo.updateDefaults(wallet.strategy)
+  await settingsRepo.updateDefaults(wallet.strategy)
   refresh()
   return wallet.strategy
 }
 
 export async function deleteWalletAction(id: string): Promise<void> {
-  walletsRepo.deleteWallet(id)
+  await walletsRepo.deleteWallet(id)
   refresh()
 }
 
 export async function createTokenAction(walletId: string): Promise<Token> {
-  const token = tokensRepo.createToken(walletId)
+  const token = await tokensRepo.createToken(walletId)
   refresh()
   return token
 }
@@ -133,18 +133,18 @@ export async function updateTokenAction(
       ? { ...patch, perteRug: parsePerteToken(patch.perteRug) }
       : patch
 
-  tokensRepo.updateToken(id, clean)
+  await tokensRepo.updateToken(id, clean)
   refresh()
 }
 
 export async function deleteTokenAction(id: string): Promise<void> {
-  tokensRepo.deleteToken(id)
+  await tokensRepo.deleteToken(id)
   refresh()
 }
 
 export async function updateSolPriceAction(value: number | null): Promise<void> {
   // Un prix négatif n'a pas de sens ; on le traite comme « non renseigné ».
-  settingsRepo.updateSolPrice(value !== null && value > 0 ? value : null)
+  await settingsRepo.updateSolPrice(value !== null && value > 0 ? value : null)
   refresh()
 }
 
@@ -161,7 +161,7 @@ export type ActionResult = { ok: true } | { ok: false; message: string }
  * demain matin, pour les trades d'aujourd'hui.
  */
 export async function startTestAction(id: string): Promise<ActionResult> {
-  const wallet = walletsRepo.getWallet(id)
+  const wallet = await walletsRepo.getWallet(id)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
 
   if (wallet.status === 'test') return { ok: true }
@@ -172,7 +172,7 @@ export async function startTestAction(id: string): Promise<ActionResult> {
     }
   }
 
-  walletsRepo.updateWallet(id, { status: 'test', testStartedAt: todayIso() })
+  await walletsRepo.updateWallet(id, { status: 'test', testStartedAt: todayIso() })
   refresh()
   return { ok: true }
 }
@@ -189,7 +189,7 @@ export async function concludeTestAction(
   id: string,
   verdict: 'valide' | 'rejete',
 ): Promise<ActionResult> {
-  const wallet = walletsRepo.getWallet(id)
+  const wallet = await walletsRepo.getWallet(id)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
   if (wallet.status !== 'test') {
     return { ok: false, message: 'Ce wallet n’est pas en phase de test.' }
@@ -203,20 +203,20 @@ export async function concludeTestAction(
     }
   }
 
-  walletsRepo.updateWallet(id, { status: verdict })
+  await walletsRepo.updateWallet(id, { status: verdict })
   refresh()
   return { ok: true }
 }
 
 /** Rouvre un test conclu, sans toucher aux journées déjà relevées. */
 export async function reopenTestAction(id: string): Promise<ActionResult> {
-  const wallet = walletsRepo.getWallet(id)
+  const wallet = await walletsRepo.getWallet(id)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
   if (wallet.status === 'screening') {
     return { ok: false, message: 'Ce wallet n’a jamais été testé.' }
   }
 
-  walletsRepo.updateWallet(id, { status: 'test' })
+  await walletsRepo.updateWallet(id, { status: 'test' })
   refresh()
   return { ok: true }
 }
@@ -233,7 +233,7 @@ export async function setWalletStatusAction(
   id: string,
   status: WalletStatus,
 ): Promise<ActionResult> {
-  const wallet = walletsRepo.getWallet(id)
+  const wallet = await walletsRepo.getWallet(id)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
   if (wallet.status === status) return { ok: true }
 
@@ -246,7 +246,7 @@ export async function setWalletStatusAction(
     patch.testStartedAt = todayIso()
   }
 
-  walletsRepo.updateWallet(id, patch)
+  await walletsRepo.updateWallet(id, patch)
   refresh()
   return { ok: true }
 }
@@ -290,7 +290,7 @@ export async function saveDayAction(input: {
   state: DayState
   tokens: readonly CreateTokenInput[]
 }): Promise<SaveDayResult> {
-  const wallet = walletsRepo.getWallet(input.walletId)
+  const wallet = await walletsRepo.getWallet(input.walletId)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
   if (wallet.status !== 'test') {
     return { ok: false, message: 'Ce wallet n’est pas en phase de test.' }
@@ -314,7 +314,7 @@ export async function saveDayAction(input: {
   const state: DayState =
     input.state === 'inactif' || lignes.length === 0 ? 'inactif' : 'actif'
 
-  const day = daysRepo.saveDay({
+  const day = await daysRepo.saveDay({
     walletId: input.walletId,
     day: input.day,
     state,
@@ -323,6 +323,46 @@ export async function saveDayAction(input: {
 
   refresh()
   return { ok: true, day, tokensCrees: state === 'inactif' ? 0 : lignes.length }
+}
+
+/**
+ * Ouvre la journée en cours, pour la saisir au fil de l'eau.
+ *
+ * Le relevé du matin ne propose que les journées terminées — c'est sa raison
+ * d'être : une journée se juge une fois finie. Mais rien n'oblige à attendre
+ * le lendemain pour noter ce qu'un wallet lance aujourd'hui. La journée est
+ * créée vide et se remplit token par token ; elle passe « active » au
+ * premier token ajouté.
+ *
+ * Elle n'est jamais réécrite si elle existe déjà : `saveDay` remplace le
+ * contenu d'une journée, l'appeler sur une journée saisie effacerait tout.
+ */
+export async function openDayAction(
+  walletId: string,
+  day: string,
+): Promise<SaveDayResult> {
+  const wallet = await walletsRepo.getWallet(walletId)
+  if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
+  if (wallet.status !== 'test') {
+    return { ok: false, message: 'Ce wallet n’est pas en phase de test.' }
+  }
+  if (!isIsoDate(day)) return { ok: false, message: 'Date de journée invalide.' }
+
+  if (wallet.testStartedAt !== null && ecartEnJours(wallet.testStartedAt, day) < 0) {
+    return { ok: false, message: 'Cette journée précède le début du test.' }
+  }
+  if (ecartEnJours(todayIso(), day) > 0) {
+    return { ok: false, message: 'Cette journée n’a pas encore eu lieu.' }
+  }
+
+  const existante = await daysRepo.getDay(walletId, day)
+  if (existante) return { ok: true, day: existante, tokensCrees: 0 }
+
+  // Sans trade relevé, la journée est « sans trade » : c'est vrai tant qu'on
+  // n'y a rien mis, et le premier token la rendra active.
+  const creee = await daysRepo.saveDay({ walletId, day, state: 'inactif', tokens: [] })
+  refresh()
+  return { ok: true, day: creee, tokensCrees: 0 }
 }
 
 /**
@@ -335,23 +375,24 @@ export async function createDayTokenAction(
   walletId: string,
   dayId: string,
 ): Promise<Token> {
-  const token = tokensRepo.createTokens(
+  const [token] = await tokensRepo.createTokens(
     walletId,
     [{}],
     { phase: 'test', dayId },
-  )[0]!
+  )
+  if (!token) throw new Error('Le token n’a pas pu être créé.')
 
-  daysRepo.setDayState(dayId, 'actif')
+  await daysRepo.setDayState(dayId, 'actif')
   refresh()
   return token
 }
 
 export async function deleteDayAction(id: string): Promise<void> {
-  daysRepo.deleteDay(id)
+  await daysRepo.deleteDay(id)
   refresh()
 }
 
 export async function setDayStateAction(id: string, state: DayState): Promise<void> {
-  daysRepo.setDayState(id, state)
+  await daysRepo.setDayState(id, state)
   refresh()
 }

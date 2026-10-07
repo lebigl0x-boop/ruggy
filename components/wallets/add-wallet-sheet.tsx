@@ -83,7 +83,7 @@ export function AddWalletSheet({
           type="button"
           onClick={soumettre}
           disabled={enCours || (touche && bloque)}
-          className="text-[17px] font-semibold text-blue disabled:opacity-40"
+          className="text-[17px] font-semibold text-ink disabled:opacity-40"
         >
           {enCours ? '…' : 'Ajouter'}
         </button>

@@ -15,34 +15,35 @@ function now(): string {
 }
 
 /** Les journées d'un wallet, de la plus ancienne à la plus récente. */
-export function listDays(walletId: string): WalletDay[] {
-  return db
+export async function listDays(walletId: string): Promise<WalletDay[]> {
+  const rows = await db
     .select()
     .from(walletDays)
     .where(eq(walletDays.walletId, walletId))
     .orderBy(asc(walletDays.day))
-    .all()
-    .map(mapWalletDay)
+  return rows.map(mapWalletDay)
 }
 
-export function getDay(walletId: string, day: string): WalletDay | null {
-  const row = db
+export async function getDay(
+  walletId: string,
+  day: string,
+): Promise<WalletDay | null> {
+  const [row] = await db
     .select()
     .from(walletDays)
     .where(and(eq(walletDays.walletId, walletId), eq(walletDays.day, day)))
-    .get()
+    .limit(1)
   return row ? mapWalletDay(row) : null
 }
 
 /** Les wallets actuellement en phase de test, pour alimenter la file du matin. */
-export function listWalletsEnTest(): Wallet[] {
-  return db
+export async function listWalletsEnTest(): Promise<Wallet[]> {
+  const rows = await db
     .select()
     .from(wallets)
     .where(eq(wallets.status, 'test'))
     .orderBy(asc(wallets.testStartedAt), asc(wallets.label))
-    .all()
-    .map(mapWallet)
+  return rows.map(mapWallet)
 }
 
 /**
@@ -55,71 +56,69 @@ export function listWalletsEnTest(): Wallet[] {
  *
  * Les corrections à l'unité se font depuis le tableau du wallet, pas ici.
  */
-export function saveDay(input: SaveDayInput): WalletDay {
+export async function saveDay(input: SaveDayInput): Promise<WalletDay> {
   const timestamp = now()
   const tokensAEcrire = input.state === 'inactif' ? [] : input.tokens
 
-  db.transaction((tx) => {
-    const existant = tx
+  await db.transaction(async (tx) => {
+    const [existant] = await tx
       .select()
       .from(walletDays)
       .where(
         and(eq(walletDays.walletId, input.walletId), eq(walletDays.day, input.day)),
       )
-      .get()
+      .limit(1)
 
     let dayId: string
 
     if (existant) {
       dayId = existant.id
-      tx.update(walletDays)
+      await tx
+        .update(walletDays)
         .set({ state: input.state, updatedAt: timestamp })
         .where(eq(walletDays.id, dayId))
-        .run()
       // La journée est réécrite : on repart de zéro plutôt que d'empiler.
-      tx.delete(tokens).where(eq(tokens.dayId, dayId)).run()
+      await tx.delete(tokens).where(eq(tokens.dayId, dayId))
     } else {
       dayId = crypto.randomUUID()
-      tx.insert(walletDays)
-        .values({
-          id: dayId,
-          walletId: input.walletId,
-          day: input.day,
-          state: input.state,
-          note: '',
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        })
-        .run()
+      await tx.insert(walletDays).values({
+        id: dayId,
+        walletId: input.walletId,
+        day: input.day,
+        state: input.state,
+        note: '',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      })
     }
 
     if (tokensAEcrire.length > 0) {
-      createTokens(input.walletId, tokensAEcrire, { phase: 'test', dayId }, tx)
+      await createTokens(input.walletId, tokensAEcrire, { phase: 'test', dayId }, tx)
     }
   })
 
-  const enregistre = getDay(input.walletId, input.day)
+  const enregistre = await getDay(input.walletId, input.day)
   if (!enregistre) throw new Error('La journée n’a pas pu être enregistrée.')
   return enregistre
 }
 
-export function setDayState(id: string, state: DayState): void {
-  db.update(walletDays)
+export async function setDayState(id: string, state: DayState): Promise<void> {
+  await db
+    .update(walletDays)
     .set({ state, updatedAt: now() })
     .where(eq(walletDays.id, id))
-    .run()
 }
 
-export function setDayNote(id: string, note: string): void {
-  db.update(walletDays)
+export async function setDayNote(id: string, note: string): Promise<void> {
+  await db
+    .update(walletDays)
     .set({ note, updatedAt: now() })
     .where(eq(walletDays.id, id))
-    .run()
 }
 
 /** Supprime la journée ; ses tokens suivent (ON DELETE CASCADE). */
-export function deleteDay(id: string): void {
-  db.delete(walletDays).where(eq(walletDays.id, id)).run()
+export async function deleteDay(id: string): Promise<void> {
+  await db.delete(walletDays).where(eq(walletDays.id, id))
 }
 
 /** Un wallet en test et les journées qu'il reste à saisir. */
@@ -137,11 +136,14 @@ export type FileDuMatin = {
  * matins sautés remontent dans la liste au lieu de disparaître — sans quoi le
  * décompte des jours d'observation serait faux.
  */
-export function listFileDuMatin(aujourdhui: string): FileDuMatin[] {
+export async function listFileDuMatin(aujourdhui: string): Promise<FileDuMatin[]> {
   const hier = jourPrecedent(aujourdhui)
+  const enTest = await listWalletsEnTest()
 
-  return listWalletsEnTest()
-    .map((wallet) => ({
+  // Les journées de chaque wallet sont lues en parallèle : en série, la file
+  // du matin ferait un aller-retour par wallet suivi.
+  const entrees = await Promise.all(
+    enTest.map(async (wallet) => ({
       wallet,
       jours:
         wallet.testStartedAt === null
@@ -149,8 +151,10 @@ export function listFileDuMatin(aujourdhui: string): FileDuMatin[] {
           : joursManquants({
               debut: wallet.testStartedAt,
               jusqua: hier,
-              saisis: listDays(wallet.id).map((jour) => jour.day),
+              saisis: (await listDays(wallet.id)).map((jour) => jour.day),
             }),
-    }))
-    .filter((entree) => entree.jours.length > 0)
+    })),
+  )
+
+  return entrees.filter((entree) => entree.jours.length > 0)
 }

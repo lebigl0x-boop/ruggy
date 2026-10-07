@@ -22,24 +22,14 @@ function now(): string {
 }
 
 /** Tous les wallets avec leurs tokens, du plus récemment analysé au plus ancien. */
-export function listWallets(): WalletWithTokens[] {
-  const walletRows = db
-    .select()
-    .from(wallets)
-    .orderBy(desc(wallets.analyzedAt), desc(wallets.createdAt))
-    .all()
-
-  const tokenRows = db
-    .select()
-    .from(tokens)
-    .orderBy(asc(tokens.walletId), asc(tokens.position))
-    .all()
-
-  const dayRows = db
-    .select()
-    .from(walletDays)
-    .orderBy(asc(walletDays.walletId), asc(walletDays.day))
-    .all()
+export async function listWallets(): Promise<WalletWithTokens[]> {
+  // Trois requêtes lancées ensemble : elles ne dépendent pas les unes des
+  // autres, et sur une base distante les enchaîner coûterait trois allers-retours.
+  const [walletRows, tokenRows, dayRows] = await Promise.all([
+    db.select().from(wallets).orderBy(desc(wallets.analyzedAt), desc(wallets.createdAt)),
+    db.select().from(tokens).orderBy(asc(tokens.walletId), asc(tokens.position)),
+    db.select().from(walletDays).orderBy(asc(walletDays.walletId), asc(walletDays.day)),
+  ])
 
   const byWallet = new Map<string, ReturnType<typeof mapToken>[]>()
   for (const row of tokenRows) {
@@ -62,23 +52,22 @@ export function listWallets(): WalletWithTokens[] {
   }))
 }
 
-export function getWallet(id: string): WalletWithTokens | null {
-  const row = db.select().from(wallets).where(eq(wallets.id, id)).get()
+export async function getWallet(id: string): Promise<WalletWithTokens | null> {
+  const [row] = await db.select().from(wallets).where(eq(wallets.id, id)).limit(1)
   if (!row) return null
 
-  const tokenRows = db
-    .select()
-    .from(tokens)
-    .where(eq(tokens.walletId, id))
-    .orderBy(asc(tokens.position))
-    .all()
-
-  const dayRows = db
-    .select()
-    .from(walletDays)
-    .where(eq(walletDays.walletId, id))
-    .orderBy(asc(walletDays.day))
-    .all()
+  const [tokenRows, dayRows] = await Promise.all([
+    db
+      .select()
+      .from(tokens)
+      .where(eq(tokens.walletId, id))
+      .orderBy(asc(tokens.position)),
+    db
+      .select()
+      .from(walletDays)
+      .where(eq(walletDays.walletId, id))
+      .orderBy(asc(walletDays.day)),
+  ])
 
   return {
     ...mapWallet(row),
@@ -88,16 +77,17 @@ export function getWallet(id: string): WalletWithTokens | null {
 }
 
 /** Adresses déjà suivies, pour refuser les doublons à la saisie. */
-export function listAddresses(): string[] {
-  return db
-    .select({ address: wallets.address })
-    .from(wallets)
-    .all()
-    .map((r) => r.address)
+export async function listAddresses(): Promise<string[]> {
+  const rows = await db.select({ address: wallets.address }).from(wallets)
+  return rows.map((r) => r.address)
 }
 
-export function findByAddress(address: string): Wallet | null {
-  const row = db.select().from(wallets).where(eq(wallets.address, address)).get()
+export async function findByAddress(address: string): Promise<Wallet | null> {
+  const [row] = await db
+    .select()
+    .from(wallets)
+    .where(eq(wallets.address, address))
+    .limit(1)
   return row ? mapWallet(row) : null
 }
 
@@ -105,13 +95,15 @@ export function findByAddress(address: string): Wallet | null {
  * Crée un wallet avec les réglages par défaut du moment et ses 10 lignes de
  * tokens vides, le tout dans une seule transaction.
  */
-export function createWallet(input: CreateWalletInput): WalletWithTokens {
-  const { defaults } = getSettings()
+export async function createWallet(
+  input: CreateWalletInput,
+): Promise<WalletWithTokens> {
+  const { defaults } = await getSettings()
   const timestamp = now()
   const id = crypto.randomUUID()
 
-  db.transaction((tx) => {
-    tx.insert(wallets)
+  await db.transaction(async (tx) => {
+    await tx.insert(wallets)
       .values({
         id,
         label: input.label.trim(),
@@ -130,9 +122,8 @@ export function createWallet(input: CreateWalletInput): WalletWithTokens {
         createdAt: timestamp,
         updatedAt: timestamp,
       })
-      .run()
 
-    tx.insert(tokens)
+    await tx.insert(tokens)
       .values(
         Array.from({ length: LIGNES_INITIALES }, (_, i) => ({
           id: crypto.randomUUID(),
@@ -151,15 +142,17 @@ export function createWallet(input: CreateWalletInput): WalletWithTokens {
           updatedAt: timestamp,
         })),
       )
-      .run()
   })
 
-  const created = getWallet(id)
+  const created = await getWallet(id)
   if (!created) throw new Error('Le wallet n’a pas pu être créé.')
   return created
 }
 
-export function updateWallet(id: string, patch: UpdateWalletPatch): void {
+export async function updateWallet(
+  id: string,
+  patch: UpdateWalletPatch,
+): Promise<void> {
   const values: Record<string, unknown> = { updatedAt: now() }
 
   if (patch.label !== undefined) values.label = patch.label
@@ -179,10 +172,10 @@ export function updateWallet(id: string, patch: UpdateWalletPatch): void {
     if (s.tauxVise !== undefined) values.tauxVise = s.tauxVise
   }
 
-  db.update(wallets).set(values).where(eq(wallets.id, id)).run()
+  await db.update(wallets).set(values).where(eq(wallets.id, id))
 }
 
 /** Supprime le wallet ; ses tokens et ses journées suivent (ON DELETE CASCADE). */
-export function deleteWallet(id: string): void {
-  db.delete(wallets).where(eq(wallets.id, id)).run()
+export async function deleteWallet(id: string): Promise<void> {
+  await db.delete(wallets).where(eq(wallets.id, id))
 }

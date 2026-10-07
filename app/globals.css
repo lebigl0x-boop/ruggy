@@ -1,50 +1,49 @@
 @import 'tailwindcss';
 
 /* ---------------------------------------------------------------------------
-   Couleurs système Apple. Chaque teinte a son équivalent sombre ; le thème
-   suit celui du système, sans interrupteur dans l'app.
+   Graphite, un seul thème.
+
+   L'app se regarde le matin, longtemps, sur des colonnes de chiffres : elle
+   est sombre et ne propose pas de clair. Les fonds sont des gris francs, sans
+   biais de teinte, pour que les seuls écarts de couleur de l'écran viennent
+   des chiffres.
+
+   Rien de décoratif n'est coloré. Ce qui est actif se détache en clair
+   (`--c-accent`) ; la couleur ne dit plus que trois choses : un gain, une
+   perte, une décision qui attend.
    --------------------------------------------------------------------------- */
 :root {
-  --c-bg: #f2f2f7;
-  --c-card: #ffffff;
-  --c-card-2: #f2f2f7;
-  --c-text: #000000;
-  --c-text-2: rgba(60, 60, 67, 0.6);
-  --c-text-3: rgba(60, 60, 67, 0.3);
-  --c-separator: rgba(60, 60, 67, 0.29);
-  --c-fill: rgba(118, 118, 128, 0.12);
-  --c-fill-2: rgba(118, 118, 128, 0.08);
-  /* Pastille du contrôle segmenté : toujours plus claire que son rail. */
-  --c-segment: #ffffff;
-  --c-nav: rgba(249, 249, 249, 0.82);
-  --c-blue: #007aff;
-  --c-green: #34c759;
-  --c-red: #ff3b30;
-  --c-orange: #ff9500;
-  --c-gray: #8e8e93;
-  --c-shadow: rgba(0, 0, 0, 0.08);
-}
+  color-scheme: dark;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --c-bg: #000000;
-    --c-card: #1c1c1e;
-    --c-card-2: #2c2c2e;
-    --c-text: #ffffff;
-    --c-text-2: rgba(235, 235, 245, 0.6);
-    --c-text-3: rgba(235, 235, 245, 0.3);
-    --c-separator: rgba(84, 84, 88, 0.65);
-    --c-fill: rgba(118, 118, 128, 0.24);
-    --c-fill-2: rgba(118, 118, 128, 0.16);
-    --c-segment: #636366;
-    --c-nav: rgba(28, 28, 30, 0.82);
-    --c-blue: #0a84ff;
-    --c-green: #30d158;
-    --c-red: #ff453a;
-    --c-orange: #ff9f0a;
-    --c-gray: #8e8e93;
-    --c-shadow: rgba(0, 0, 0, 0.4);
-  }
+  --c-bg: #0d0d0e;
+  --c-card: #151517;
+  --c-card-2: #1d1d20;
+  --c-text: #ededf0;
+  --c-text-2: #9a9aa2;
+  --c-text-3: #5e5e66;
+  --c-separator: #26262a;
+  --c-fill: #1d1d20;
+  --c-fill-2: #1c1c20;
+  /* Pastille du contrôle segmenté : toujours plus claire que son rail. */
+  --c-segment: #2a2a30;
+  --c-nav: rgba(13, 13, 14, 0.82);
+
+  /* L'identité n'a pas de teinte : un bouton coloré ne voudrait rien dire. */
+  --c-accent: #ededf0;
+  --c-accent-ink: #121214;
+  /* Fond d'un élément actif ou survolé, plus clair que la carte qui le porte. */
+  --c-hi: #26262b;
+
+  /* Sémantique, rabattue pour tenir sur du graphite sans piquer. */
+  --c-green: #4ea97b;
+  --c-red: #d1584f;
+  --c-orange: #c99a3e;
+  /* Ardoise : mis sous surveillance, et la phase de test en cours. */
+  --c-blue: #7b86b8;
+  --c-blue-soft: rgba(123, 134, 184, 0.16);
+  --c-gray: #7b7b84;
+
+  --c-shadow: rgba(0, 0, 0, 0.5);
 }
 
 @theme inline {
@@ -59,7 +58,11 @@
   --color-fill-2: var(--c-fill-2);
   --color-segment: var(--c-segment);
   --color-nav: var(--c-nav);
+  --color-accent: var(--c-accent);
+  --color-accent-ink: var(--c-accent-ink);
+  --color-hi: var(--c-hi);
   --color-blue: var(--c-blue);
+  --color-blue-soft: var(--c-blue-soft);
   --color-green: var(--c-green);
   --color-red: var(--c-red);
   --color-orange: var(--c-orange);
@@ -69,7 +72,7 @@
     -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Helvetica Neue',
     Arial, sans-serif;
 
-  --radius-card: 12px;
+  --radius-card: 15px;
 }
 
 html {
@@ -89,7 +92,17 @@ body {
 }
 
 ::selection {
-  background-color: color-mix(in srgb, var(--c-blue) 25%, transparent);
+  background-color: color-mix(in srgb, var(--c-accent) 22%, transparent);
+}
+
+/*
+ * Trame de points. Elle habille les grandes surfaces vides — cellules de
+ * tableau, fonds de colonnes — pour qu'un écran peu rempli garde une texture
+ * au lieu d'un aplat. Assez faible pour ne jamais disputer la lecture.
+ */
+.pointille {
+  background-image: radial-gradient(circle at 1px 1px, #1d1d20 1px, transparent 0);
+  background-size: 22px 22px;
 }
 
 /* Réglage système « réduire les animations » : on retire les transitions. */
@@ -127,7 +140,7 @@ body {
 
   /* Anneau de focus discret, à la macOS. */
   :focus-visible {
-    outline: 2px solid var(--c-blue);
+    outline: 2px solid var(--c-accent);
     outline-offset: 1px;
   }
 }

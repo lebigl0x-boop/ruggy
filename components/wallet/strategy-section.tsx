@@ -64,7 +64,7 @@ export function StrategySection({
             setConfirme(true)
             setTimeout(() => setConfirme(false), 2500)
           }}
-          className="flex w-full items-center gap-1.5 text-left text-[17px] text-blue transition active:opacity-50"
+          className="flex w-full items-center gap-1.5 text-left text-[17px] font-medium text-ink transition active:opacity-50"
         >
           {confirme ? (
             <>

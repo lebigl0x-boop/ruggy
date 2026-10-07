@@ -1,63 +1,130 @@
 import 'server-only'
 
-import Database from 'better-sqlite3'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 
 import * as schema from './schema'
 
-// Les commentaires `turbopackIgnore` évitent que Next.js, voyant un chemin
-// construit à l'exécution, embarque tout le projet dans la sortie du build.
-export const DB_PATH = resolve(
-  /* turbopackIgnore: true */
-  process.cwd(),
-  process.env.RUGGERS_DB_PATH ?? 'data/ruggers.db',
-)
+/**
+ * Le dénominateur commun des deux pilotes : tout `lib/repo` s'écrit contre ce
+ * type, et personne n'a besoin de savoir lequel tourne.
+ */
+type BaseRuggers = PgDatabase<PgQueryResultHKT, typeof schema>
 
-const MIGRATIONS_FOLDER = resolve(
-  /* turbopackIgnore: true */
-  process.cwd(),
-  'lib/db/migrations',
-)
+// `createRequire` plutôt qu'un `import` statique : seul le pilote dont
+// l'environnement a besoin est chargé, et aucun des deux n'entre dans le
+// bundle (voir `serverExternalPackages` dans next.config.ts).
+const exiger = createRequire(import.meta.url)
 
-function createClient() {
-  mkdirSync(dirname(DB_PATH), { recursive: true })
+/**
+ * La connexion à la base.
+ *
+ * Deux pilotes, un seul Postgres :
+ *
+ * - en production et en développement, `postgres.js` parle au Postgres de
+ *   Supabase à travers `DATABASE_URL` ;
+ * - en test, PGlite fait tourner un Postgres en mémoire, dans le processus.
+ *   La suite reste donc autonome — ni base distante, ni conteneur — tout en
+ *   exécutant le vrai SQL de Postgres.
+ *
+ * Les migrations ne sont plus appliquées au démarrage : en serverless, ce
+ * code s'exécuterait à chaque démarrage à froid, en concurrence avec lui-même.
+ * Elles passent par `npm run db:migrate`, avant le déploiement.
+ */
 
-  const sqlite = new Database(DB_PATH)
-  // WAL : lectures et écritures concurrentes sans blocage.
-  sqlite.pragma('journal_mode = WAL')
-  // Indispensable pour que la suppression d'un wallet efface ses tokens.
-  sqlite.pragma('foreign_keys = ON')
-
-  const client = drizzle(sqlite, { schema })
-
-  // L'app tourne en local : on applique les migrations au démarrage pour
-  // qu'un simple `npm run dev` suffise, sans étape d'installation oubliée.
-  migrate(client, { migrationsFolder: MIGRATIONS_FOLDER })
-  ensureSettingsRow(sqlite)
-
-  return client
+/**
+ * Pointer vers le *pooler* de Supabase, pas vers la base directe : chaque
+ * invocation serverless ouvre sa propre connexion, et une base directe sature
+ * en quelques requêtes.
+ *
+ *   postgresql://postgres.<ref>:<mot-de-passe>@<région>.pooler.supabase.com:6543/postgres
+ */
+function urlPostgres(): string | null {
+  const url = process.env.DATABASE_URL?.trim()
+  return url !== undefined && url !== '' ? url : null
 }
 
-/** Garantit l'existence de la ligne unique de réglages globaux. */
-function ensureSettingsRow(sqlite: Database.Database): void {
-  sqlite
-    .prepare('INSERT OR IGNORE INTO settings (id, updated_at) VALUES (1, ?)')
-    .run(new Date().toISOString())
+function creerClient(): BaseRuggers {
+  const url = urlPostgres()
+
+  if (url === null) {
+    // La base en mémoire ne s'obtient que sur demande explicite. Sans ça, un
+    // `npm run dev` sans .env.local démarrerait sur une base vide et volatile,
+    // en donnant l'impression d'avoir perdu toutes les données.
+    if (process.env.RUGGERS_DB_MEMOIRE === '1') return creerClientMemoire()
+
+    throw new Error(
+      'DATABASE_URL est absente. Posez l’URL du pooler Supabase dans .env.local ' +
+        '(ou RUGGERS_DB_MEMOIRE=1 pour une base en mémoire, réservée aux tests).',
+    )
+  }
+
+  // Imports paresseux : PGlite ne doit pas entrer dans le bundle de production,
+  // et postgres.js ne doit pas être chargé par la suite de tests.
+  const { drizzle } =
+    exiger('drizzle-orm/postgres-js') as typeof import('drizzle-orm/postgres-js')
+  const postgres = exiger('postgres') as typeof import('postgres')
+
+  const client = postgres(url, {
+    // Le pooler de Supabase est en mode transaction : il ne sait pas tenir les
+    // requêtes préparées d'une invocation à l'autre.
+    prepare: false,
+    // Une invocation serverless traite une requête à la fois ; ouvrir
+    // davantage de connexions ne ferait que consommer le quota du pooler.
+    max: 1,
+    // Les NOTICE de Postgres n'ont rien à faire dans les journaux de l'app.
+    onnotice: () => {},
+  })
+
+  return drizzle(client, { schema })
+}
+
+/** Postgres en mémoire, pour les tests. */
+function creerClientMemoire(): BaseRuggers {
+  const { PGlite } =
+    exiger('@electric-sql/pglite') as typeof import('@electric-sql/pglite')
+  const { drizzle } = exiger('drizzle-orm/pglite') as typeof import('drizzle-orm/pglite')
+
+  return drizzle(new PGlite(), { schema })
 }
 
 // En développement, Next.js recharge les modules à chaud : on garde une seule
-// connexion sur l'objet global pour ne pas rouvrir le fichier à chaque fois.
-const globalForDb = globalThis as unknown as {
-  __ruggersDb?: ReturnType<typeof createClient>
+// connexion sur l'objet global pour ne pas en rouvrir une à chaque fois.
+const globalForDb = globalThis as unknown as { __ruggersDb?: BaseRuggers }
+
+function obtenirClient(): BaseRuggers {
+  const existant = globalForDb.__ruggersDb
+  if (existant) return existant
+
+  const client = creerClient()
+  if (process.env.NODE_ENV !== 'production') globalForDb.__ruggersDb = client
+  return client
 }
 
-export const db = globalForDb.__ruggersDb ?? createClient()
+/**
+ * La connexion s'ouvre à la première requête, pas à l'import.
+ *
+ * Next.js évalue les modules de chaque page pendant le build : connecter au
+ * chargement ferait échouer `next build` sans `DATABASE_URL`, alors qu'aucune
+ * requête n'est exécutée à ce moment-là.
+ */
+export const db: BaseRuggers = new Proxy({} as BaseRuggers, {
+  get(_cible, propriete) {
+    const client = obtenirClient() as unknown as Record<string | symbol, unknown>
+    const valeur = client[propriete]
+    return typeof valeur === 'function' ? valeur.bind(client) : valeur
+  },
+})
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForDb.__ruggersDb = db
-}
+/**
+ * Une transaction en cours, ou la base elle-même.
+ *
+ * La saisie d'une journée crée la journée puis ses tokens : les fonctions de
+ * `lib/repo` doivent pouvoir travailler indifféremment sur l'une ou l'autre.
+ */
+export type DbClient =
+  | typeof db
+  | Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 export { schema }

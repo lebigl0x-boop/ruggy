@@ -13,7 +13,7 @@ import { formatDayFr, formatPercent, formatSol } from '@/lib/format'
 import type { Token, UpdateTokenPatch } from '@/lib/repo/types'
 import type { DayResult, DayState, TestReport } from '@/lib/test-report'
 import { cn } from '../ui/cn'
-import { ChevronRightIcon } from '../ui/icons'
+import { ChevronRightIcon, PlusIcon } from '../ui/icons'
 
 /** Une journée relevée, avec de quoi la corriger. */
 export type JourneeEditable = {
@@ -39,6 +39,8 @@ export function TestSection({
   test,
   journees,
   strategy,
+  jourEnCoursSaisi,
+  onOuvrirJour,
   onChangeToken,
   onDeleteToken,
   onAddToken,
@@ -48,6 +50,9 @@ export function TestSection({
   /** Journées corrigeables, repérées par leur date. */
   journees: readonly JourneeEditable[]
   strategy: Strategy
+  /** La journée du jour est déjà ouverte : inutile de la proposer. */
+  jourEnCoursSaisi: boolean
+  onOuvrirJour: () => void
   onChangeToken: (id: string, patch: UpdateTokenPatch) => void
   onDeleteToken: (id: string) => void
   onAddToken: (dayId: string) => void
@@ -56,15 +61,24 @@ export function TestSection({
   if (test.joursObserves === 0) {
     return (
       <section className="mb-6">
-        <h2 className="mb-2 px-4 text-[13px] tracking-wide text-ink-2 uppercase">
+        <h2 className="mb-2 text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
           Phase de test
         </h2>
         <div className="rounded-card bg-card px-4 py-6 text-center">
           <p className="text-[15px] text-ink-2">Aucune journée relevée.</p>
           <p className="mt-1 text-[13px] text-ink-3">
-            Le relevé du matin porte sur la veille : la première journée
-            apparaîtra demain.
+            Le relevé du matin porte sur la veille. Vous pouvez aussi ouvrir la
+            journée en cours et la remplir au fil de l’eau.
           </p>
+          {jourEnCoursSaisi ? null : (
+            <button
+              type="button"
+              onClick={onOuvrirJour}
+              className="mt-3 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-semibold text-accent-ink transition hover:bg-white active:scale-95"
+            >
+              Ouvrir la journée du jour
+            </button>
+          )}
         </div>
       </section>
     )
@@ -76,7 +90,7 @@ export function TestSection({
 
   return (
     <section className="mb-6">
-      <h2 className="mb-2 px-4 text-[13px] tracking-wide text-ink-2 uppercase">
+      <h2 className="mb-2 text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
         Phase de test
       </h2>
 
@@ -138,6 +152,20 @@ export function TestSection({
           <span className="w-20 shrink-0 text-right">Objectif</span>
           <span className="w-24 shrink-0 text-right">Résultat</span>
         </div>
+
+        {jourEnCoursSaisi ? null : (
+          <button
+            type="button"
+            onClick={onOuvrirJour}
+            className="flex w-full items-center gap-2 border-b border-separator px-4 py-2.5 text-left text-[14px] font-medium text-ink transition hover:bg-fill-2 active:bg-fill"
+          >
+            <PlusIcon className="h-[15px] w-[15px]" />
+            Ouvrir la journée du jour
+            <span className="ml-auto text-[12px] text-ink-3">
+              à remplir au fil de l’eau
+            </span>
+          </button>
+        )}
 
         {test.days.map((jour) => (
           <LigneJournee

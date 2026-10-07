@@ -1,35 +1,45 @@
 /**
- * Crée ./data/ruggers.db et y applique les migrations Drizzle.
- * À lancer avec `npm run db:setup`. L'app le fait aussi toute seule au
- * démarrage ; ce script sert surtout à vérifier que tout est en place.
+ * Applique les migrations sur le Postgres de `DATABASE_URL`, puis amorce la
+ * ligne de réglages globaux.
+ *
+ * À lancer avec `npm run db:setup`, avant un déploiement. L'application ne le
+ * fait plus toute seule : en serverless, ce code s'exécuterait à chaque
+ * démarrage à froid, plusieurs invocations en même temps.
+ *
+ * Pour migrer la base de production, viser la connexion **directe**
+ * (port 5432) et non le pooler : le pooler est en mode transaction et ne sait
+ * pas tenir un verrou de migration.
  */
-import Database from 'better-sqlite3'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
-import { mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { drizzle } from 'drizzle-orm/postgres-js'
+import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import postgres from 'postgres'
+import { resolve } from 'node:path'
 
-const dbPath = resolve(process.cwd(), process.env.RUGGERS_DB_PATH ?? 'data/ruggers.db')
+const url = process.env.DATABASE_URL?.trim()
 
-mkdirSync(dirname(dbPath), { recursive: true })
+if (!url) {
+  console.error(
+    'DATABASE_URL est absente. Posez-la dans .env.local (jamais dans le dépôt).',
+  )
+  process.exit(1)
+}
 
-const sqlite = new Database(dbPath)
-sqlite.pragma('journal_mode = WAL')
-sqlite.pragma('foreign_keys = ON')
+const client = postgres(url, { max: 1, onnotice: () => {} })
+const db = drizzle(client)
 
-migrate(drizzle(sqlite), {
+await migrate(db, {
   migrationsFolder: resolve(process.cwd(), 'lib/db/migrations'),
 })
 
-sqlite
-  .prepare('INSERT OR IGNORE INTO settings (id, updated_at) VALUES (1, ?)')
-  .run(new Date().toISOString())
+const { ensureSettingsRow } = await import('../lib/db/seed')
+await ensureSettingsRow(db)
 
-const tables = sqlite
-  .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-  .all() as { name: string }[]
+const tables = await client`
+  select table_name from information_schema.tables
+  where table_schema = 'public' order by table_name
+`
 
-sqlite.close()
+await client.end()
 
-console.log(`Base prête : ${dbPath}`)
-console.log(`Tables : ${tables.map((t) => t.name).join(', ')}`)
+console.log('Base prête.')
+console.log(`Tables : ${tables.map((t) => t.table_name).join(', ')}`)

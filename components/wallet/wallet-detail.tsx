@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 import {
   concludeTestAction,
   createDayTokenAction,
+  openDayAction,
   createTokenAction,
   deleteTokenAction,
   deleteWalletAction,
@@ -32,27 +33,44 @@ import type {
 } from '@/lib/repo/types'
 import { screeningTokens, toDayInputs, toTokenInput } from '@/lib/repo/types'
 import { computeTestReport, type DayState } from '@/lib/test-report'
+import { CourbePnl, type PointCourbe } from '../charts/courbe-pnl'
+import { BarresJours } from '../charts/barres-jours'
+import { Tabs, type Onglet } from '../ui/tabs'
 import type { StrategyField } from '@/lib/validation'
 import { cn } from '../ui/cn'
 import { TextField } from '../ui/field'
 import { CheckIcon, ChevronLeftIcon, ExternalIcon } from '../ui/icons'
 import { SaveIndicator } from '../ui/save-indicator'
+import { StatusBadge } from '../ui/status-badge'
 import { useAutoSave } from '../ui/use-auto-save'
 import { BilanCard } from './bilan-card'
 import { DangerZone } from './danger-zone'
 import { InfosSection } from './infos-section'
 import { NotesSection } from './notes-section'
 import { PhaseSection } from './phase-section'
+import { ResumeLot } from './resume-lot'
 import { StrategySection } from './strategy-section'
 import { TestSection, type JourneeEditable } from './test-section'
 import { TokenTable } from './token-table'
 
+/** Les sections de la page, une par onglet. */
+type OngletWallet = 'bilan' | 'tokens' | 'journees' | 'reglages'
+
 export function WalletDetail({
   wallet: initial,
   settings,
+  joursAFaire,
+  aujourdhui,
 }: {
   wallet: WalletWithTokens
   settings: GlobalSettings
+  /** Journées de ce wallet en attente de relevé, comptées côté serveur. */
+  joursAFaire: number
+  /**
+   * La date du jour, décidée côté serveur. La lire dans le navigateur
+   * ferait diverger le premier rendu de l'hydratation autour de minuit.
+   */
+  aujourdhui: string
 }) {
   const router = useRouter()
   const { status, schedule, run } = useAutoSave()
@@ -61,7 +79,6 @@ export function WalletDetail({
   // l'écriture en base suit avec un léger retard.
   const [wallet, setWallet] = useState(initial)
   const [solPriceEur, setSolPriceEur] = useState(settings.solPriceEur)
-  const [defile, setDefile] = useState(false)
   const [erreur, setErreur] = useState<string | null>(null)
 
   // Les deux lots sont calculés séparément et ne sont jamais additionnés :
@@ -110,6 +127,40 @@ export function WalletDetail({
   }, [wallet])
 
   const enTest = wallet.status !== 'screening'
+
+  const [onglet, setOnglet] = useState<OngletWallet>('bilan')
+
+  /** La courbe du wallet : une journée par point, dans l'ordre du temps. */
+  const courbe = useMemo<PointCourbe[]>(() => {
+    let cumul = 0
+    return test.days.map((jour) => {
+      cumul += jour.pnlSol
+      return { day: jour.day, pnlSol: jour.pnlSol, cumulSol: cumul }
+    })
+  }, [test.days])
+
+  // L'onglet Journées n'existe pas tant que le test n'a pas commencé : un
+  // onglet vide qui ne le sera jamais est pire qu'un onglet absent.
+  const onglets: Onglet<OngletWallet>[] = [
+    { value: 'bilan', label: 'Bilan' },
+    { value: 'tokens', label: 'Tokens', badge: tokensScreening.length || null },
+    ...(enTest
+      ? [
+          {
+            value: 'journees' as const,
+            label: 'Journées',
+            badge: test.joursObserves || null,
+          },
+        ]
+      : []),
+    { value: 'reglages', label: 'Réglages' },
+  ]
+
+  // Conclure un test ramène le wallet en screening : l'onglet ouvert peut
+  // avoir disparu sous les pieds.
+  const actif: OngletWallet = onglets.some((o) => o.value === onglet)
+    ? onglet
+    : 'bilan'
 
   /** Une transition de statut peut échouer côté serveur : on reprend la sienne. */
   function majStatut(
@@ -186,6 +237,29 @@ export function WalletDetail({
     })
   }
 
+  /** Ouvre la journée en cours pour la saisir sans attendre demain matin. */
+  function ouvrirJourEnCours() {
+    run(async () => {
+      const resultat = await openDayAction(wallet.id, aujourdhui)
+      if (!resultat.ok) {
+        setErreur(resultat.message)
+        return
+      }
+      const jour = resultat.day
+      setWallet((precedent) =>
+        precedent.days.some((autre) => autre.id === jour.id)
+          ? precedent
+          : {
+              ...precedent,
+              days: [...precedent.days, jour].sort((a, b) =>
+                a.day.localeCompare(b.day),
+              ),
+            },
+      )
+      setOnglet('journees')
+    })
+  }
+
   function majEtatJour(dayId: string, state: DayState) {
     setWallet((precedent) => ({
       ...precedent,
@@ -211,36 +285,23 @@ export function WalletDetail({
 
   return (
     <div
-      onScroll={(event) => setDefile(event.currentTarget.scrollTop > 36)}
       className="h-full overflow-y-auto overscroll-contain"
     >
-      {/* Barre de navigation translucide : le titre n'apparaît qu'au défilement. */}
-      <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-separator bg-nav px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 backdrop-blur-xl">
-        <Link
-          href="/"
-          className="-ml-1 flex items-center gap-0.5 rounded-lg px-1 py-0.5 text-[17px] text-blue transition active:opacity-50 md:invisible md:w-0"
-        >
-          <ChevronLeftIcon className="h-[17px] w-[17px]" />
-          Wallets
-        </Link>
+      {/* Barre d'outils : identité, statut et onglets tiennent sur deux
+          lignes collantes. L'ancien bandeau de titre coûtait 120 px de
+          hauteur avant le premier chiffre. */}
+      <header className="sticky top-0 z-20 border-b border-separator bg-nav backdrop-blur-xl">
+        <div className="flex items-center gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-1.5 md:px-4">
+          <Link
+            href="/wallets"
+            aria-label="Retour aux wallets"
+            className="-ml-0.5 flex shrink-0 items-center gap-1 rounded-full bg-fill px-2.5 py-1 text-[12.5px] text-ink-2 transition hover:bg-hi hover:text-ink active:opacity-60"
+          >
+            <ChevronLeftIcon className="h-[15px] w-[15px]" />
+            <span className="hidden sm:inline">Wallets</span>
+          </Link>
 
-        <h2
-          className={cn(
-            'min-w-0 flex-1 truncate text-center text-[17px] font-semibold transition-opacity duration-200',
-            defile ? 'opacity-100' : 'opacity-0',
-          )}
-        >
-          {wallet.label}
-        </h2>
-
-        <div className="shrink-0">
-          <SaveIndicator status={status} />
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-[680px] px-4 pb-16">
-        <div className="pt-5 pb-6">
-          <h1 className="text-[34px] leading-tight font-bold tracking-tight">
+          <h1 className="min-w-0 flex-1 text-[16px] leading-tight font-bold tracking-tight">
             <TextField
               ariaLabel="Nom du wallet"
               value={wallet.label}
@@ -249,109 +310,229 @@ export function WalletDetail({
             />
           </h1>
 
-          <p className="mt-1 font-mono text-[13px] text-ink-2" title={wallet.address}>
-            {shortAddress(wallet.address)}
-            <span className="ml-2 font-sans">
-              · analysé le {formatDateFr(wallet.analyzedAt)}
-            </span>
-          </p>
+          <span className="hidden shrink-0 sm:block">
+            <StatusBadge
+              status={wallet.status}
+              detail={
+                wallet.status === 'test'
+                  ? `j${test.joursObserves}/${test.joursMinimum}`
+                  : undefined
+              }
+            />
+          </span>
 
-          <div className="mt-3 flex flex-wrap gap-2">
-            <BoutonLien onClick={() => void navigator.clipboard.writeText(wallet.address)}>
+          <div className="shrink-0">
+            <SaveIndicator status={status} />
+          </div>
+        </div>
+
+        <Tabs
+          onglets={onglets}
+          value={actif}
+          onChange={setOnglet}
+          ariaLabel="Sections du wallet"
+          className="border-b-0 px-1 md:px-2"
+        />
+      </header>
+
+      <div
+        className={cn(
+          'px-3 pt-4 pb-16 sm:px-4 md:px-6',
+          // Les réglages sont un formulaire : étalés sur 1600 px, l'étiquette
+          // et son champ se retrouvent aux deux bouts de l'écran.
+          actif === 'reglages' && 'mx-auto max-w-[760px]',
+        )}
+      >
+        {/* Identité et liens externes : hors de la barre collante, ils ne
+            prennent de la place qu'une fois. */}
+        <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-card border border-separator bg-card px-4 py-2.5 text-[12.5px] text-ink-3">
+          <span>
+            Analysé le{' '}
+            <b className="font-semibold text-ink">{formatDateFr(wallet.analyzedAt)}</b>
+          </span>
+          <span>
+            Adresse{' '}
+            <b className="font-mono font-semibold text-ink" title={wallet.address}>
+              {shortAddress(wallet.address)}
+            </b>
+          </span>
+          <div className="flex flex-wrap gap-1.5 md:ml-auto">
+            <BoutonLien
+              onClick={() => void navigator.clipboard.writeText(wallet.address)}
+            >
               Copier
             </BoutonLien>
             <BoutonExterne href={SOLSCAN_URL(wallet.address)}>Solscan</BoutonExterne>
             <BoutonExterne href={GMGN_URL(wallet.address)}>GMGN</BoutonExterne>
           </div>
+          <span className="shrink-0 sm:hidden">
+            <StatusBadge status={wallet.status} />
+          </span>
         </div>
 
-        <BilanCard
-          report={enTest ? test.report : report}
-          strategy={wallet.strategy}
-        />
-
         {erreur !== null ? (
-          <p className="mb-6 rounded-card bg-card px-4 py-3 text-[15px] text-red">
+          <p className="mb-4 rounded-card bg-card px-4 py-3 text-[15px] text-red">
             {erreur}
           </p>
         ) : null}
 
-        <PhaseSection
-          status={wallet.status}
-          testStartedAt={wallet.testStartedAt}
-          test={test}
-          screeningN={report.n}
-          screeningSeuil={report.seuilAnalyse}
-          onStart={() => majStatut(() => startTestAction(wallet.id), 'test')}
-          onConclude={(verdict) =>
-            majStatut(() => concludeTestAction(wallet.id, verdict), verdict)
-          }
-          onReopen={() => majStatut(() => reopenTestAction(wallet.id), 'test')}
-          onClassify={(cible) =>
-            majStatut(() => setWalletStatusAction(wallet.id, cible), cible)
-          }
-        />
+        {actif === 'bilan' ? (
+          <>
+            <BilanCard
+              report={enTest ? test.report : report}
+              strategy={wallet.strategy}
+            />
 
-        {enTest ? (
-          <TestSection
-            test={test}
-            journees={journees}
-            strategy={wallet.strategy}
-            onChangeToken={majToken}
-            onDeleteToken={supprimerToken}
-            onAddToken={ajouterTokenJour}
-            onDayState={majEtatJour}
-          />
+            {/* La courbe prend les deux tiers : c'est elle qui a besoin de
+                largeur, la phase est une liste de boutons. Sans courbe — un
+                wallet encore en screening — pas de grille du tout, sinon la
+                phase resterait coincée dans une colonne avec un vide à côté. */}
+            <div
+              className={cn(
+                'grid items-start gap-4',
+                courbe.length > 0 && 'xl:grid-cols-[2fr_1fr]',
+              )}
+            >
+              {courbe.length > 0 ? (
+                <section className="rounded-card border border-separator bg-card px-4 pt-4 pb-3">
+                  <h2 className="text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
+                    Résultat cumulé
+                  </h2>
+                  <CourbePnl points={courbe} className="mt-3" />
+                </section>
+              ) : null}
+
+              <div className={cn(courbe.length === 0 && 'max-w-[560px]')}>
+                <PhaseSection
+                  walletId={wallet.id}
+                  status={wallet.status}
+                  testStartedAt={wallet.testStartedAt}
+                  joursAFaire={joursAFaire}
+                  test={test}
+                  screeningN={report.n}
+                  screeningSeuil={report.seuilAnalyse}
+                  // Lancer le test fait apparaître l'onglet Journées : on y
+                  // emmène, sinon le bouton semble n'avoir rien fait. Si le
+                  // serveur refuse, le statut repart en arrière et l'onglet
+                  // disparaît — le repli sur Bilan est automatique.
+                  onStart={() => {
+                    majStatut(() => startTestAction(wallet.id), 'test')
+                    setOnglet('journees')
+                  }}
+                  onConclude={(verdict) =>
+                    majStatut(() => concludeTestAction(wallet.id, verdict), verdict)
+                  }
+                  onReopen={() => {
+                    majStatut(() => reopenTestAction(wallet.id), 'test')
+                    setOnglet('journees')
+                  }}
+                  onClassify={(cible) =>
+                    majStatut(() => setWalletStatusAction(wallet.id, cible), cible)
+                  }
+                />
+              </div>
+            </div>
+          </>
         ) : null}
 
-        <TokenTable
-          tokens={tokensScreening}
-          rows={report.rows}
-          strategy={wallet.strategy}
-          onChange={majToken}
-          onDelete={supprimerToken}
-          onAdd={ajouterToken}
-        />
+        {actif === 'tokens' ? (
+          <div>
+            {/* Le verdict du lot qu'on est en train de regarder. La carte du
+                Bilan parle du relevé de test dès qu'il a commencé : sans ce
+                bandeau, l'échantillon n'aurait plus où se juger. */}
+            <ResumeLot
+              titre="Échantillon de screening"
+              report={report}
+              strategy={wallet.strategy}
+              aPart={enTest}
+            />
+              <TokenTable
+              tokens={tokensScreening}
+              rows={report.rows}
+              strategy={wallet.strategy}
+              onChange={majToken}
+              onDelete={supprimerToken}
+              onAdd={ajouterToken}
+            />
+          </div>
+        ) : null}
 
-        <StrategySection
-          strategy={wallet.strategy}
-          onChange={majStrategie}
-          onUseAsDefault={() => run(() => useStrategyAsDefaultAction(wallet.id))}
-        />
+        {actif === 'journees' && enTest ? (
+          <>
+            {test.days.length > 0 ? (
+              <section className="mb-4 rounded-card bg-card px-4 pt-4 pb-3">
+                <h2 className="text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
+                  Résultat par journée
+                </h2>
+                <BarresJours
+                  className="mt-3"
+                  jours={test.days.map((jour) => ({
+                    day: jour.day,
+                    pnlSol: jour.pnlSol,
+                    inactif: jour.state === 'inactif',
+                  }))}
+                />
+              </section>
+            ) : null}
 
-        <InfosSection
-          address={wallet.address}
-          analyzedAt={wallet.analyzedAt}
-          tagOverride={wallet.tagOverride}
-          solPriceEur={solPriceEur}
-          onAnalyzedAt={(analyzedAt) => majWallet({ analyzedAt }, 'analyzedAt')}
-          onTagOverride={(tagOverride: TagOverride | null) =>
-            majWallet({ tagOverride }, 'tagOverride')
-          }
-          onSolPrice={majPrixSol}
-        />
+            <TestSection
+              test={test}
+              journees={journees}
+              strategy={wallet.strategy}
+              jourEnCoursSaisi={wallet.days.some((jour) => jour.day === aujourdhui)}
+              onOuvrirJour={ouvrirJourEnCours}
+              onChangeToken={majToken}
+              onDeleteToken={supprimerToken}
+              onAddToken={ajouterTokenJour}
+              onDayState={majEtatJour}
+            />
+          </>
+        ) : null}
 
-        <NotesSection
-          value={wallet.notes}
-          onChange={(notes) => majWallet({ notes }, 'notes')}
-        />
+        {actif === 'reglages' ? (
+          <>
+            <StrategySection
+              strategy={wallet.strategy}
+              onChange={majStrategie}
+              onUseAsDefault={() => run(() => useStrategyAsDefaultAction(wallet.id))}
+            />
 
-        <DangerZone
-          label={wallet.label}
-          onDelete={() =>
-            run(async () => {
-              await deleteWalletAction(wallet.id)
-              router.push('/')
-            })
-          }
-        />
+            <InfosSection
+              address={wallet.address}
+              analyzedAt={wallet.analyzedAt}
+              tagOverride={wallet.tagOverride}
+              solPriceEur={solPriceEur}
+              onAnalyzedAt={(analyzedAt) => majWallet({ analyzedAt }, 'analyzedAt')}
+              onTagOverride={(tagOverride: TagOverride | null) =>
+                majWallet({ tagOverride }, 'tagOverride')
+              }
+              onSolPrice={majPrixSol}
+            />
+
+            <NotesSection
+              value={wallet.notes}
+              onChange={(notes) => majWallet({ notes }, 'notes')}
+            />
+
+            <DangerZone
+              label={wallet.label}
+              onDelete={() =>
+                run(async () => {
+                  await deleteWalletAction(wallet.id)
+                  router.push('/wallets')
+                })
+              }
+            />
+          </>
+        ) : null}
       </div>
     </div>
   )
 }
 
+
 const STYLE_BOUTON =
-  'inline-flex items-center gap-1.5 rounded-full bg-fill px-3 py-1.5 text-[13px] font-medium text-blue transition hover:bg-fill-2 active:scale-95'
+  'inline-flex items-center gap-1.5 rounded-full bg-fill px-2.5 py-1 text-[12px] font-medium text-ink-2 transition hover:bg-hi hover:text-ink active:scale-95'
 
 function BoutonLien({
   onClick,

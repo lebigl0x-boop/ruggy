@@ -1,12 +1,21 @@
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
+  doublePrecision,
   index,
   integer,
-  real,
-  sqliteTable,
+  pgTable,
   text,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core'
+} from 'drizzle-orm/pg-core'
+
+/**
+ * Les horodatages sont des chaînes ISO-8601, écrites par l'application avec
+ * `new Date().toISOString()`. On les garde en `text` plutôt qu'en `timestamp`
+ * pour que la valeur lue soit exactement celle qui a été écrite — le reste du
+ * code compare et trie ces dates comme des chaînes.
+ */
+const horodatage = sql`to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
 
 /**
  * Réglages globaux. Une seule ligne, d'identifiant 1.
@@ -14,20 +23,18 @@ import {
  * création, jamais référencées, pour qu'un changement de réglages ne
  * réécrive pas l'historique.
  */
-export const settings = sqliteTable('settings', {
+export const settings = pgTable('settings', {
   id: integer('id').primaryKey(),
-  solPriceEur: real('sol_price_eur'),
-  defaultMise: real('default_mise').notNull().default(0.1),
-  defaultObjectif: real('default_objectif').notNull().default(100),
-  defaultPerteRug: real('default_perte_rug').notNull().default(90),
-  defaultFrais: real('default_frais').notNull().default(0.003),
-  defaultTauxVise: real('default_taux_vise').notNull().default(30),
-  updatedAt: text('updated_at')
-    .notNull()
-    .default(sql`(CURRENT_TIMESTAMP)`),
+  solPriceEur: doublePrecision('sol_price_eur'),
+  defaultMise: doublePrecision('default_mise').notNull().default(0.1),
+  defaultObjectif: doublePrecision('default_objectif').notNull().default(100),
+  defaultPerteRug: doublePrecision('default_perte_rug').notNull().default(90),
+  defaultFrais: doublePrecision('default_frais').notNull().default(0.003),
+  defaultTauxVise: doublePrecision('default_taux_vise').notNull().default(30),
+  updatedAt: text('updated_at').notNull().default(horodatage),
 })
 
-export const wallets = sqliteTable(
+export const wallets = pgTable(
   'wallets',
   {
     id: text('id').primaryKey(),
@@ -50,12 +57,12 @@ export const wallets = sqliteTable(
     testStartedAt: text('test_started_at'),
 
     // Réglages de stratégie propres au wallet.
-    mise: real('mise').notNull().default(0.1),
-    objectif: real('objectif').notNull().default(100),
+    mise: doublePrecision('mise').notNull().default(0.1),
+    objectif: doublePrecision('objectif').notNull().default(100),
     /** Perte appliquée aux tokens qui n'ont pas la leur. */
-    perteRug: real('perte_rug').notNull().default(90),
-    frais: real('frais').notNull().default(0.003),
-    tauxVise: real('taux_vise').notNull().default(30),
+    perteRug: doublePrecision('perte_rug').notNull().default(90),
+    frais: doublePrecision('frais').notNull().default(0.003),
+    tauxVise: doublePrecision('taux_vise').notNull().default(30),
 
     /** 'manual' aujourd'hui ; 'helius' le jour où l'import automatique arrive. */
     source: text('source').notNull().default('manual'),
@@ -78,7 +85,7 @@ export const wallets = sqliteTable(
  * décompte des jours d'observation serait faux et le plancher de la phase 2
  * ne voudrait rien dire.
  */
-export const walletDays = sqliteTable(
+export const walletDays = pgTable(
   'wallet_days',
   {
     id: text('id').primaryKey(),
@@ -97,7 +104,7 @@ export const walletDays = sqliteTable(
   (table) => [uniqueIndex('wallet_days_unique').on(table.walletId, table.day)],
 )
 
-export const tokens = sqliteTable(
+export const tokens = pgTable(
   'tokens',
   {
     id: text('id').primaryKey(),
@@ -110,11 +117,11 @@ export const tokens = sqliteTable(
     /** Adresse du token. */
     mint: text('mint'),
     /** % de montée depuis le buy. null = token non noté. */
-    gain: real('gain'),
+    gain: doublePrecision('gain'),
     /** Perte de ce lancement, en %. null = on reprend celle du wallet. */
-    perteRug: real('perte_rug'),
+    perteRug: doublePrecision('perte_rug'),
     /** Délai avant dump, en minutes. */
-    delay: real('delay'),
+    delay: doublePrecision('delay'),
     /**
      * Le token a été pris. Un token non pris reste une observation du wallet
      * — il a bien lancé ce jour-là — mais son résultat n'entre pas dans le
@@ -123,7 +130,7 @@ export const tokens = sqliteTable(
      * Par défaut à vrai, pour que les relevés antérieurs au filtre gardent
      * exactement les chiffres qu'ils avaient.
      */
-    pris: integer('pris', { mode: 'boolean' }).notNull().default(true),
+    pris: boolean('pris').notNull().default(true),
 
     /**
      * De quel lot vient ce token : 'screening' (échantillon historique choisi

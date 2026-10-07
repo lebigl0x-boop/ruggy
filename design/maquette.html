@@ -1,0 +1,1226 @@
+<title>Ruggers — maquette UI</title>
+
+<style>
+  /* =========================================================================
+     Maquette Ruggers — v2.
+     Strictement limitée aux écrans, onglets et mesures qui existent déjà dans
+     le code. Direction visuelle inspirée des captures partagées.
+     Thème sombre assumé : un seul monde visuel, toutes les couleurs peintes.
+     Données entièrement fictives.
+     ========================================================================= */
+  :root {
+    /* Graphite franc, sans biais de teinte : les seuls écarts chromatiques
+       de l'écran doivent venir des chiffres, pas des fonds. */
+    --ground: #0d0d0e;
+    --panel: #151517;
+    --panel-2: #18181b;
+    --chip: #1d1d20;
+    --chip-hi: #26262b;
+    --line: #26262a;
+    --line-soft: #1c1c20;
+
+    --ink: #ededf0;
+    --ink-2: #9a9aa2;
+    --ink-3: #5e5e66;
+
+    /* L'identité n'a pas de teinte : ce qui est actif se détache en clair.
+       La couleur est entièrement réservée au sens — un chiffre coloré veut
+       dire quelque chose, un bouton coloré ne voudrait rien dire. */
+    --accent: #ededf0;
+    --accent-ink: #121214;
+
+    /* Sémantique, rabattue pour tenir sur du graphite sans piquer. */
+    --green: #4ea97b;  /* gain */
+    --red: #d1584f;    /* perte */
+    --orange: #c99a3e; /* une décision attend */
+    --blue: #7b86b8;   /* mise sous surveillance, phase de test */
+    --gray: #7b7b84;   /* pas encore jugeable */
+
+    --r-pill: 999px;
+    --r-sm: 8px;
+    --r-md: 11px;
+    --r-lg: 15px;
+
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    --rail: 214px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  a { color: inherit; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .sourdine { color: var(--ink-3); }
+
+  /* Micro-label : capitales espacées, le seul endroit où l'on crie. */
+  .sur-titre {
+    color: var(--ink-3);
+    font-size: 10.5px;
+    letter-spacing: .085em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* Canevas à pointillés, comme sur les captures. */
+  .dots { background-image: radial-gradient(circle at 1px 1px, #212125 1px, transparent 0); background-size: 22px 22px; }
+
+  /* === Coquille ========================================================== */
+  .app {
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    height: 100dvh;
+    overflow: hidden;
+    transition: grid-template-columns .22s ease;
+  }
+  .app.replie { grid-template-columns: 60px minmax(0, 1fr); }
+
+  /* === Rail ============================================================== */
+  .rail {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 10px 10px 12px;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    min-width: 0;
+  }
+
+  .marque { display: flex; align-items: center; gap: 9px; padding: 4px 4px 16px; }
+  .logo {
+    width: 26px; height: 26px; flex: 0 0 26px;
+    border-radius: 8px;
+    background: var(--accent); color: var(--accent-ink);
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 14px; letter-spacing: -.02em;
+  }
+  .marque .nom { font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; }
+  .plier { margin-left: auto; color: var(--ink-3); padding: 3px; border-radius: 6px; display: grid; place-items: center; }
+  .plier:hover { color: var(--ink-2); background: var(--chip); }
+
+  .nav {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 8px 9px;
+    border-radius: var(--r-md);
+    color: var(--ink-2); font-size: 13px;
+    white-space: nowrap; text-align: left;
+    transition: background .14s ease, color .14s ease;
+  }
+  .nav svg { flex: 0 0 16px; }
+  .nav:hover { background: var(--chip); color: var(--ink); }
+  /* L'espace ouvert se signale par un fond plus clair et un filet vertical —
+     aucune teinte n'est nécessaire pour dire « vous êtes ici ». */
+  .nav[aria-current="page"] { background: var(--chip-hi); color: var(--ink); font-weight: 600; position: relative; }
+  .nav[aria-current="page"]::before {
+    content: ""; position: absolute; left: 0; top: 9px; bottom: 9px;
+    width: 2px; border-radius: 0 2px 2px 0; background: var(--accent);
+  }
+  .app.replie .nav[aria-current="page"]::before { top: 7px; bottom: 7px; }
+  .pastille {
+    background: var(--red); color: #fff;
+    font-size: 10px; font-weight: 700;
+    min-width: 17px; height: 17px;
+    border-radius: var(--r-pill);
+    display: grid; place-items: center;
+    padding: 0 5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .nav .pastille { margin-left: auto; }
+
+  .rail .bas { margin-top: auto; display: grid; gap: 8px; }
+  /* Le prix du SOL est un réglage global : il vit avec l'identité, pas dans
+     un écran qu'il faudrait aller chercher. */
+  .prix-sol {
+    display: flex; align-items: center; gap: 9px;
+    padding: 9px 11px;
+    background: var(--chip);
+    border-radius: var(--r-md);
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .prix-sol b { margin-left: auto; color: var(--ink); font-family: var(--mono); font-size: 12px; font-weight: 600; }
+  .prix-sol:hover { background: var(--chip-hi); }
+  .moi {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    color: var(--ink-2); white-space: nowrap;
+  }
+  .moi .av {
+    width: 18px; height: 18px; flex: 0 0 18px;
+    border-radius: var(--r-pill);
+    background: #22222a; color: #9a9aa2;
+    display: grid; place-items: center;
+    font-size: 9.5px; font-weight: 700;
+  }
+
+  .app.replie .marque .nom, .app.replie .plier,
+  .app.replie .nav span:not(.pastille), .app.replie .prix-sol span,
+  .app.replie .prix-sol b, .app.replie .moi span { display: none; }
+  .app.replie .nav, .app.replie .prix-sol, .app.replie .moi { justify-content: center; padding-inline: 0; }
+  .app.replie .nav { position: relative; }
+  .app.replie .nav .pastille { position: absolute; margin: 0; transform: translate(13px, -11px); min-width: 15px; height: 15px; font-size: 9px; }
+
+  /* === Contenu =========================================================== */
+  .vue { overflow-y: auto; min-width: 0; }
+  .vue::-webkit-scrollbar { width: 11px; }
+  .vue::-webkit-scrollbar-thumb { background: #2a2a30; border-radius: 99px; border: 3px solid var(--ground); }
+
+  .page { padding: 0 22px 44px; display: grid; gap: 14px; align-content: start; }
+
+  /* En-tête collant : le titre et le sous-titre réels des pages. */
+  .entete {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 12px;
+    padding: 17px 0 14px;
+    background: linear-gradient(var(--ground) 72%, rgba(13, 13, 14, 0));
+  }
+  .entete .ico { color: var(--ink-3); display: grid; place-items: center; }
+  .entete h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.015em; }
+  .entete .sous { color: var(--ink-3); font-size: 12.5px; }
+  .entete .sous::before { content: "·"; margin-right: 9px; color: var(--line); }
+
+  /* --- Pilules et mesures ------------------------------------------------ */
+  .rang { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+  .pilule {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--chip);
+    border-radius: var(--r-pill);
+    padding: 6px 13px;
+    color: var(--ink-2); font-size: 12.5px;
+    white-space: nowrap;
+    transition: background .14s ease, color .14s ease;
+  }
+  .pilule:hover { background: var(--chip-hi); color: var(--ink); }
+  .pilule[aria-selected="true"] { background: var(--chip-hi); color: var(--ink); }
+  .pilule svg { color: var(--ink-3); flex: 0 0 auto; }
+  .pilule[aria-selected="true"] svg { color: var(--ink-2); }
+
+  /* Capsule de mesures : plusieurs chiffres dans un même contenant bordé. */
+  .mesures {
+    display: inline-flex; align-items: stretch;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    overflow: hidden;
+  }
+  .mesure {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 15px;
+    color: var(--ink-2); font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .mesure + .mesure { border-left: 1px solid var(--line); }
+  .mesure b { color: var(--ink); font-weight: 650; font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .mesure svg { color: var(--ink-3); }
+
+  /* Contrôle segmenté : il filtre sur place. Forme différente des onglets,
+     qui eux changent de contenu — deux gestes, deux formes. */
+  .segmente {
+    display: inline-flex; gap: 2px;
+    background: var(--chip);
+    border-radius: var(--r-pill);
+    padding: 3px;
+  }
+  .segmente button {
+    padding: 5px 13px;
+    border-radius: var(--r-pill);
+    color: var(--ink-2); font-size: 12.5px;
+    white-space: nowrap;
+    transition: background .16s ease, color .16s ease;
+  }
+  .segmente button:hover { color: var(--ink); }
+  .segmente button[aria-selected="true"] { background: var(--chip-hi); color: var(--ink); font-weight: 600; }
+
+  .champ {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--chip);
+    border-radius: var(--r-pill);
+    padding: 7px 14px;
+    color: var(--ink-3);
+    min-width: 210px;
+  }
+  .champ input { background: none; border: 0; outline: none; color: var(--ink); font-size: 12.5px; width: 100%; }
+  .champ input::placeholder { color: var(--ink-3); }
+
+  .bouton {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--accent); color: var(--accent-ink);
+    border-radius: var(--r-pill);
+    padding: 7px 15px;
+    font-weight: 600; font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .bouton:hover { background: #fff; }
+  .bouton.fantome { background: var(--chip); color: var(--ink-2); }
+  .bouton.fantome:hover { background: var(--chip-hi); color: var(--ink); }
+  .bouton.danger { background: transparent; color: var(--red); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 35%, transparent); }
+  .bouton.danger:hover { background: color-mix(in srgb, var(--red) 12%, transparent); filter: none; }
+
+  /* --- Tag : la mise en couleur du code (tag-badge.tsx) ------------------ */
+  .tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: var(--r-pill);
+    padding: 3px 10px;
+    font-size: 11.5px; font-weight: 600;
+    white-space: nowrap;
+  }
+  .tag.rentable { color: var(--green); background: color-mix(in srgb, var(--green) 15%, transparent); }
+  .tag.limite { color: var(--orange); background: color-mix(in srgb, var(--orange) 15%, transparent); }
+  .tag.surveiller { color: var(--blue); background: color-mix(in srgb, var(--blue) 15%, transparent); }
+  .tag.pas { color: var(--red); background: color-mix(in srgb, var(--red) 15%, transparent); }
+  .tag.completer { color: var(--gray); background: rgba(118, 118, 128, 0.2); }
+
+  .etat {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--chip); border-radius: var(--r-pill);
+    padding: 4px 11px; font-size: 12px; color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .point { width: 7px; height: 7px; border-radius: var(--r-pill); flex: 0 0 7px; }
+  .point.bleu { background: var(--blue); }
+  .point.vert { background: var(--green); }
+  .point.orange { background: var(--orange); }
+  .point.gris { background: var(--ink-3); }
+  .point.rouge { background: var(--red); }
+
+  /* --- Tableau des wallets ----------------------------------------------- */
+  .surface { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+
+  .grille {
+    display: grid;
+    grid-template-columns:
+      minmax(250px, 1.3fr) minmax(170px, .95fr) minmax(130px, .7fr)
+      minmax(120px, .65fr) minmax(110px, .55fr) minmax(130px, .7fr);
+  }
+  .grille > * { min-width: 0; }
+
+  .th {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 16px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-2); font-size: 12px; font-weight: 600;
+    white-space: nowrap;
+  }
+  .th.droite { justify-content: flex-end; }
+  .th svg { color: var(--ink-3); }
+  .th + .th { box-shadow: inset 1px 0 0 var(--line-soft); }
+
+  .ligne { display: contents; }
+  .cell {
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line-soft);
+    background-image: radial-gradient(circle at 1px 1px, #1d1d20 1px, transparent 0);
+    background-size: 22px 22px;
+    transition: background-color .12s ease;
+  }
+  .cell.droite { justify-content: flex-end; }
+  .ligne:hover .cell { background-color: #1a1a1e; }
+  .ligne:last-child .cell { border-bottom: 0; }
+
+  .nom-wallet {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--chip); border-radius: var(--r-pill);
+    padding: 5px 12px;
+    font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .015em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 100%;
+  }
+  .ligne:hover .nom-wallet { background: var(--chip-hi); }
+  .av-wallet {
+    width: 22px; height: 22px; flex: 0 0 22px;
+    border-radius: var(--r-pill);
+    background: #22222a; color: #9a9aa2;
+    display: grid; place-items: center;
+  }
+  .adr { color: var(--ink-3); font-size: 11.5px; font-family: var(--mono); }
+
+  .valeur { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .valeur .sur { color: var(--ink-3); }
+
+  /* Jauge d'avancement vers le plancher de la phase en cours. */
+  .jauge { height: 4px; border-radius: var(--r-pill); background: var(--chip-hi); overflow: hidden; width: 100%; }
+  .jauge i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--ink-3); }
+  .jauge i.plein { background: var(--orange); }
+  .colonne-jauge { display: grid; gap: 5px; width: 100%; }
+
+  /* --- Détail wallet ------------------------------------------------------ */
+  .entete-detail { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 17px 0 0; }
+  .titre-detail { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .015em; text-transform: uppercase; }
+  .droite-auto { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    padding: 11px 16px;
+    color: var(--ink-3); font-size: 12.5px;
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .meta a { color: #9a9aa2; text-decoration: none; border-bottom: 1px solid #3c3c44; }
+  .meta a:hover { border-bottom-color: #9a9aa2; }
+
+  .carte {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r-lg); padding: 15px 17px;
+    display: grid; gap: 4px; align-content: start;
+  }
+  .carte .v { font-family: var(--mono); font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .carte .d { color: var(--ink-3); font-size: 11.5px; }
+
+  .bilan {
+    display: grid;
+    grid-template-columns: minmax(230px, .9fr) repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .bilan .net { grid-row: span 1; }
+  .bilan .net .v { font-size: 30px; }
+
+  .explication {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r-lg); padding: 13px 17px;
+    color: var(--ink-2); font-size: 12.5px;
+  }
+  .explication .sourdine { display: block; margin-top: 3px; }
+
+  /* Tableau générique des onglets Tokens / Journées. */
+  table.data { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.data th {
+    text-align: left; font-size: 11px; font-weight: 600; color: var(--ink-3);
+    padding: 11px 14px; white-space: nowrap;
+    background: var(--panel-2); border-bottom: 1px solid var(--line);
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  table.data th.droite, table.data td.droite { text-align: right; }
+  table.data td {
+    padding: 9px 14px; border-bottom: 1px solid var(--line-soft);
+    color: var(--ink-2);
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+  }
+  table.data td.nom { color: var(--ink); font-family: var(--sans); font-weight: 500; }
+  table.data tr:last-child td { border-bottom: 0; }
+  table.data tbody tr:hover td { background: #1a1a1e; }
+  table.data tr.ecarte td { color: var(--ink-3); }
+  table.data tr.ecarte td.nom { text-decoration: line-through; text-decoration-color: #3c3c44; }
+
+  .case {
+    width: 15px; height: 15px; border-radius: 5px;
+    border: 1px solid #3c3c44; display: inline-grid; place-items: center;
+    color: #0d0d0e; vertical-align: -2px;
+  }
+  .case.cochee { background: var(--green); border-color: var(--green); }
+
+  .reglage {
+    display: flex; align-items: center; gap: 14px;
+    padding: 11px 17px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .reglage:last-child { border-bottom: 0; }
+  .reglage .l { color: var(--ink-2); }
+  .reglage .d { color: var(--ink-3); font-size: 11.5px; }
+  .reglage .saisie-champ {
+    margin-left: auto;
+    background: var(--ground); border: 1px solid var(--line);
+    border-radius: var(--r-sm); padding: 6px 11px;
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    color: var(--ink); min-width: 88px; text-align: right;
+  }
+
+  /* --- Entonnoir ---------------------------------------------------------- */
+  .entonnoir { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  .colonne { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 10px; display: grid; gap: 8px; align-content: start; }
+  .tete-colonne { display: flex; align-items: center; gap: 8px; padding: 3px 5px 5px; color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
+  .tete-colonne .compte { margin-left: auto; font-family: var(--mono); color: var(--ink-3); font-size: 11.5px; }
+  .carte-wallet {
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 10px 11px;
+    display: grid; gap: 8px; width: 100%; text-align: left;
+    transition: border-color .14s ease, background .14s ease;
+  }
+  .carte-wallet:hover { border-color: #33333a; background: #1c1c20; }
+  .carte-wallet.reclame { border-color: color-mix(in srgb, var(--orange) 45%, transparent); }
+  .carte-wallet .haut { display: flex; align-items: center; gap: 8px; }
+  .carte-wallet .nom { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pied-carte { display: flex; align-items: center; gap: 8px; }
+  .murmure { color: var(--ink-3); font-size: 11.5px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .appel { color: var(--orange); font-size: 11.5px; font-weight: 600; }
+  .actions-carte { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px; }
+  .mini {
+    border-radius: var(--r-pill); padding: 4px 10px;
+    background: var(--chip-hi); color: var(--ink-2); font-size: 11.5px; font-weight: 500;
+  }
+  .mini:hover { background: #30303a; color: var(--ink); }
+  .mini.oui { color: var(--green); }
+  .mini.non { color: var(--red); }
+
+  /* --- Ce matin ------------------------------------------------------------ */
+  .file { display: grid; gap: 8px; }
+  .entree { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+  .entree.fait { opacity: .62; }
+  .tete-entree { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 15px; text-align: left; }
+  .tete-entree:hover { background: var(--panel-2); }
+  .tete-entree .nom { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .015em; }
+  .corps-entree { border-top: 1px solid var(--line); padding: 14px 15px; display: grid; gap: 12px; }
+  .saisie {
+    background: var(--ground); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 12px 14px;
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink);
+    min-height: 96px; white-space: pre-wrap; line-height: 1.75;
+  }
+  .saisie .ph { color: var(--ink-3); }
+  .barre-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .total-jour { margin-left: auto; font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  /* --- Dashboard ----------------------------------------------------------- */
+  .haut-dashboard { display: grid; grid-template-columns: minmax(240px, .4fr) minmax(0, 1fr); gap: 12px; }
+  .tuiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
+  [hidden] { display: none !important; }
+
+  @media (max-width: 1180px) {
+    .bilan { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grille { grid-template-columns: minmax(200px, 1.3fr) minmax(150px, 1fr) minmax(100px, .6fr) minmax(110px, .6fr); }
+    .grille .th:nth-child(4), .grille .th:nth-child(5), .cell.repli { display: none; }
+    .entonnoir { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tuiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .haut-dashboard { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 820px) {
+    .app { grid-template-columns: 60px minmax(0, 1fr); }
+    .app .marque .nom, .app .plier, .app .nav span:not(.pastille),
+    .app .prix-sol span, .app .prix-sol b, .app .moi span { display: none; }
+    .app .nav, .app .prix-sol, .app .moi { justify-content: center; padding-inline: 0; }
+    .app .nav { position: relative; }
+    .app .nav .pastille { position: absolute; margin: 0; transform: translate(13px, -11px); min-width: 15px; height: 15px; font-size: 9px; }
+    .page { padding-inline: 14px; }
+    .bilan, .tuiles, .entonnoir { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+
+<div class="app" id="app">
+  <!-- ===================== Rail : les trois espaces du code ============== -->
+  <nav class="rail" aria-label="Navigation principale">
+    <div class="marque">
+      <span class="logo" aria-hidden="true">R</span>
+      <span class="nom">Ruggers</span>
+      <button class="plier" id="plier" aria-label="Replier le menu">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M9.5 4 6 8l3.5 4M13 4 9.5 8 13 12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <button class="nav" data-vue="matin" aria-current="page">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 11.5h12M4.3 8.6a3.7 3.7 0 0 1 7.4 0M8 2.3v1.4M3 4.5l1 1M13 4.5l-1 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <span>Matin</span>
+      <span class="pastille">3</span>
+    </button>
+    <button class="nav" data-vue="dashboard">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 3h11M4 6.5h8M5.5 10h5M7 13.5h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button class="nav" data-vue="wallets">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.2" y="4.2" width="11.6" height="8" rx="2.2" stroke="currentColor" stroke-width="1.3"/><path d="M10.2 7.4h3.6v3.2h-3.6a1.6 1.6 0 0 1 0-3.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+      <span>Wallets</span>
+    </button>
+
+    <div class="bas">
+      <button class="prix-sol">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.4 4.6h8.2l-1.8 2H1.6l1.8-2ZM4.4 7h8.2l-1.8 2H2.6l1.8-2ZM3.4 9.4h8.2l-1.8 2H1.6l1.8-2Z" fill="currentColor" opacity=".9"/></svg>
+        <span>SOL</span>
+        <b>204,30 €</b>
+      </button>
+      <div class="moi">
+        <span class="av" aria-hidden="true">L</span>
+        <span>Liam</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ===================== Vues ========================================== -->
+  <div class="vue" id="zone">
+
+    <!-- ---------- Ce matin ---------- -->
+    <section class="page" data-ecran="matin">
+      <header class="entete">
+        <span class="ico" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><path d="M2 11.5h12M4.3 8.6a3.7 3.7 0 0 1 7.4 0M8 2.3v1.4M3 4.5l1 1M13 4.5l-1 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        </span>
+        <h1>Ce matin</h1>
+        <span class="sous">mardi 7 octobre 2026 · relevé des journées écoulées</span>
+        <div class="droite-auto">
+          <span class="mesures">
+            <span class="mesure">À relever <b>3</b></span>
+            <span class="mesure">Relevées <b>4</b></span>
+          </span>
+        </div>
+      </header>
+
+      <div class="file">
+        <div class="entree">
+          <button class="tete-entree">
+            <span class="av-wallet" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2.4" y="4.4" width="11.2" height="7.6" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M10.2 7.4h3.4v3h-3.4a1.5 1.5 0 0 1 0-3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="nom">Sniper Bleu</span>
+            <span class="adr">7xKq…9fTu</span>
+            <span class="etat" style="margin-left:auto"><span class="point orange"></span> Journée du 06/10</span>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="color:var(--ink-3)"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+
+          <div class="corps-entree">
+            <div class="saisie" role="textbox" aria-readonly="true" tabindex="0">MOONCAT 320 18
+PIXELDOG rug 12
+VOLTAX 140 41
+GRIMACE 280 9
+<span class="ph">un token par ligne — nom, gain en %, délai en minutes</span></div>
+
+            <div class="surface">
+              <table class="data">
+                <thead>
+                  <tr>
+                    <th style="width:52px">Pris</th>
+                    <th>Token</th>
+                    <th class="droite">Gain %</th>
+                    <th class="droite">Perte</th>
+                    <th class="droite">Délai</th>
+                    <th class="droite">Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td><span class="case cochee"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="m3 8.4 3.2 3.2L13 4.8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td><td class="nom">MOONCAT</td><td class="droite">320</td><td class="droite sourdine">—</td><td class="droite">18 min</td><td class="droite pos">+1,10</td></tr>
+                  <tr class="ecarte"><td><span class="case"></span></td><td class="nom">PIXELDOG</td><td class="droite">rug</td><td class="droite">−88</td><td class="droite">12 min</td><td class="droite sourdine">écarté</td></tr>
+                  <tr><td><span class="case cochee"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="m3 8.4 3.2 3.2L13 4.8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td><td class="nom">VOLTAX</td><td class="droite">140</td><td class="droite sourdine">—</td><td class="droite">41 min</td><td class="droite neg">−0,50</td></tr>
+                  <tr><td><span class="case cochee"><svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="m3 8.4 3.2 3.2L13 4.8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></td><td class="nom">GRIMACE</td><td class="droite">280</td><td class="droite sourdine">—</td><td class="droite">9 min</td><td class="droite pos">+0,90</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="barre-actions">
+              <button class="bouton">Enregistrer la journée</button>
+              <button class="bouton fantome">Journée sans trade</button>
+              <span class="total-jour">3 pris · 1 écarté · net <b class="pos">+1,50 SOL</b></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="entree">
+          <button class="tete-entree">
+            <span class="av-wallet" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2.4" y="4.4" width="11.2" height="7.6" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M10.2 7.4h3.4v3h-3.4a1.5 1.5 0 0 1 0-3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="nom">Renard Matinal</span>
+            <span class="adr">D4mP…Lk20</span>
+            <span class="etat" style="margin-left:auto"><span class="point orange"></span> Journée du 06/10</span>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="color:var(--ink-3)"><path d="m6 3.5 4 4.5-4 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <div class="entree">
+          <button class="tete-entree">
+            <span class="av-wallet" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2.4" y="4.4" width="11.2" height="7.6" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M10.2 7.4h3.4v3h-3.4a1.5 1.5 0 0 1 0-3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="nom">Aiguille Nord</span>
+            <span class="adr">9Ttv…B3xe</span>
+            <span class="etat" style="margin-left:auto"><span class="point orange"></span> Journée du 05/10 · sautée</span>
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="color:var(--ink-3)"><path d="m6 3.5 4 4.5-4 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <div class="entree fait">
+          <button class="tete-entree">
+            <span class="av-wallet" aria-hidden="true" style="background:#1b2a21;color:#4ea97b">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="m3 8.4 3.2 3.2L13 4.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="nom">Orage Lent</span>
+            <span class="adr">Bq7s…Rm41</span>
+            <span class="etat" style="margin-left:auto"><span class="point vert"></span> 5 pris · net <span class="mono pos" style="margin-left:4px">+2,30 SOL</span></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Dashboard ---------- -->
+    <section class="page" data-ecran="dashboard" hidden>
+      <header class="entete">
+        <span class="ico" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><path d="M2.5 3h11M4 6.5h8M5.5 10h5M7 13.5h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        </span>
+        <h1>Dashboard</h1>
+        <span class="sous">32 wallets suivis · 86 journées relevées</span>
+      </header>
+
+      <div class="haut-dashboard">
+        <div class="carte">
+          <span class="sur-titre">Net de la phase de test</span>
+          <span class="v pos" style="font-size:32px">+41,26 SOL</span>
+          <span class="d">8 428 € · échantillon screening +18,70 SOL, tenu à part</span>
+        </div>
+
+        <div class="carte" style="gap:10px">
+          <span class="sur-titre">Résultat cumulé</span>
+          <svg viewBox="0 0 640 140" preserveAspectRatio="none" style="width:100%;height:126px" role="img" aria-label="Résultat cumulé de 0 à +41,26 SOL sur 86 journées relevées">
+            <defs>
+              <linearGradient id="remplissage" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#4ea97b" stop-opacity=".24" />
+                <stop offset="100%" stop-color="#4ea97b" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <line x1="0" y1="112" x2="640" y2="112" stroke="#26262a" stroke-width="1" />
+            <line x1="0" y1="75" x2="640" y2="75" stroke="#1c1c20" stroke-width="1" />
+            <line x1="0" y1="38" x2="640" y2="38" stroke="#1c1c20" stroke-width="1" />
+            <path d="M0 112 L40 106 L80 114 L120 99 L160 103 L200 88 L240 92 L280 74 L320 80 L360 63 L400 69 L440 51 L480 57 L520 40 L560 46 L600 28 L636 22 L636 140 L0 140 Z" fill="url(#remplissage)" />
+            <path d="M0 112 L40 106 L80 114 L120 99 L160 103 L200 88 L240 92 L280 74 L320 80 L360 63 L400 69 L440 51 L480 57 L520 40 L560 46 L600 28 L636 22" fill="none" stroke="#4ea97b" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+            <circle cx="636" cy="22" r="3.5" fill="#4ea97b" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="tuiles">
+        <div class="carte"><span class="sur-titre">Taux à l’objectif</span><span class="v">31,4 %</span><span class="d">100 sur 318 notés</span></div>
+        <div class="carte"><span class="sur-titre">Tokens pris</span><span class="v">318</span><span class="d">126 écartés</span></div>
+        <div class="carte"><span class="sur-titre">Journées</span><span class="v">86</span><span class="d">7 wallets en test</span></div>
+        <div class="carte"><span class="sur-titre">Meilleur wallet</span><span class="v pos">+12,40</span><span class="d">Sniper Bleu</span></div>
+      </div>
+
+      <h2 class="sur-titre" style="padding:6px 2px 0">Entonnoir</h2>
+      <div class="entonnoir" id="entonnoir"><!-- injecté --></div>
+    </section>
+
+    <!-- ---------- Wallets ---------- -->
+    <section class="page" data-ecran="wallets" hidden>
+      <header class="entete">
+        <span class="ico" aria-hidden="true">
+          <svg width="17" height="17" viewBox="0 0 16 16" fill="none"><rect x="2.2" y="4.2" width="11.6" height="8" rx="2.2" stroke="currentColor" stroke-width="1.3"/><path d="M10.2 7.4h3.6v3.2h-3.6a1.6 1.6 0 0 1 0-3.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        </span>
+        <h1>Wallets</h1>
+        <span class="sous">32 suivis · 7 en test, 12 en screening</span>
+        <div class="droite-auto">
+          <button class="bouton">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Ajouter un wallet
+          </button>
+        </div>
+      </header>
+
+      <div class="rang">
+        <div class="segmente" id="segments" role="tablist" aria-label="Filtrer par état">
+          <button role="tab" aria-selected="true" data-seg="tous">Tous</button>
+          <button role="tab" aria-selected="false" data-seg="screening">Screening</button>
+          <button role="tab" aria-selected="false" data-seg="test">En test</button>
+          <button role="tab" aria-selected="false" data-seg="valide">Validés</button>
+          <button role="tab" aria-selected="false" data-seg="rejete">Écartés</button>
+        </div>
+
+        <label class="champ">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4.6" stroke="currentColor" stroke-width="1.3"/><path d="m10.6 10.6 3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <input type="search" id="recherche" placeholder="Nom ou adresse" aria-label="Rechercher un wallet" />
+        </label>
+
+        <div class="droite-auto">
+          <span class="mesures">
+            <span class="mesure">Net de test <b class="pos">+41,26 SOL</b></span>
+            <span class="mesure">Taux <b>31,4 %</b></span>
+          </span>
+        </div>
+      </div>
+
+      <div class="surface">
+        <div class="grille" id="tableau">
+          <button class="th" data-tri="label">
+            Wallet
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M4.5 9.5 8 13l3.5-3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="th" data-tri="status">État</button>
+          <button class="th droite" data-tri="n">Tokens</button>
+          <button class="th droite" data-tri="taux">Objectif</button>
+          <button class="th droite" data-tri="jours">Jours</button>
+          <button class="th droite" data-tri="net">Net</button>
+          <!-- lignes injectées -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Détail d'un wallet ---------- -->
+    <section class="page" data-ecran="detail" hidden>
+      <header class="entete-detail">
+        <button class="pilule" id="retour" style="padding:6px 12px">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m10 3.5-4 4.5 4 4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Wallets
+        </button>
+        <h2 class="titre-detail" id="detail-nom">Sniper Bleu</h2>
+        <span class="etat" id="detail-etat"><span class="point bleu"></span> En test</span>
+        <span class="tag rentable" id="detail-tag">Rentable</span>
+        <div class="droite-auto" id="detail-actions"></div>
+      </header>
+
+      <div class="meta">
+        <span>Analysé le <b class="mono">03/04/2026</b></span>
+        <span>Test ouvert le <b class="mono">11/04/2026</b></span>
+        <span>Adresse <b class="mono" id="detail-adr">7xKq…9fTu</b></span>
+        <span><a href="#" onclick="return false">Solscan</a></span>
+        <span><a href="#" onclick="return false">GMGN</a></span>
+        <span style="margin-left:auto">Mise <b class="mono">0,50 SOL</b> · objectif <b class="mono">+200 %</b> · rug <b class="mono">−88 %</b></span>
+      </div>
+
+      <div class="rang" id="onglets">
+        <button class="pilule" aria-selected="true" data-onglet="bilan">Bilan</button>
+        <button class="pilule" aria-selected="false" data-onglet="tokens">Tokens <span class="pastille" style="background:var(--chip-hi);color:var(--ink-2)">44</span></button>
+        <button class="pilule" aria-selected="false" data-onglet="journees">Journées <span class="pastille" style="background:var(--chip-hi);color:var(--ink-2)">21</span></button>
+        <button class="pilule" aria-selected="false" data-onglet="reglages">Réglages</button>
+      </div>
+
+      <!-- Onglet Bilan -->
+      <div data-panneau="bilan">
+        <div class="bilan">
+          <div class="carte net">
+            <span class="sur-titre">Résultat net</span>
+            <span class="v pos">+12,40 SOL</span>
+            <span class="d">2 533 € · 141 tokens pris sur 184 notés</span>
+            <div class="colonne-jauge" style="margin-top:9px">
+              <div class="jauge"><i class="plein" style="width:100%"></i></div>
+              <span class="d">21 journées sur 14 — le test peut être conclu</span>
+            </div>
+          </div>
+          <div class="carte"><span class="sur-titre">Taux à l’objectif</span><span class="v">34,2 %</span><span class="d">63 sur 184</span></div>
+          <div class="carte"><span class="sur-titre">Seuil de rentabilité</span><span class="v">28,6 %</span><span class="d pos">Au-dessus du seuil</span></div>
+          <div class="carte"><span class="sur-titre">Sur 100 tokens</span><span class="v pos">+8,79</span><span class="d">Au rythme actuel</span></div>
+          <div class="carte"><span class="sur-titre">Délai avant dump</span><span class="v">14 min</span><span class="d">Régulier</span></div>
+        </div>
+
+        <div class="explication" style="margin-top:12px">
+          Rentable : 34,2 % des tokens notés atteignent l’objectif, au-dessus des 30 % visés.
+          <span class="sourdine">43 tokens écartés · en prenant tout : +4,10 SOL</span>
+        </div>
+
+        <div class="carte" style="margin-top:12px;gap:10px">
+          <span class="sur-titre">Résultat par journée</span>
+          <svg viewBox="0 0 640 120" preserveAspectRatio="none" style="width:100%;height:112px" role="img" aria-label="Résultat par journée sur 21 journées relevées">
+            <line x1="0" y1="72" x2="640" y2="72" stroke="#26262a" stroke-width="1" />
+            <g fill="#4ea97b">
+              <rect x="6" y="52" width="20" height="20" rx="2"/><rect x="36" y="38" width="20" height="34" rx="2"/>
+              <rect x="96" y="30" width="20" height="42" rx="2"/><rect x="126" y="60" width="20" height="12" rx="2"/>
+              <rect x="186" y="22" width="20" height="50" rx="2"/><rect x="216" y="48" width="20" height="24" rx="2"/>
+              <rect x="276" y="35" width="20" height="37" rx="2"/><rect x="336" y="18" width="20" height="54" rx="2"/>
+              <rect x="396" y="44" width="20" height="28" rx="2"/><rect x="456" y="26" width="20" height="46" rx="2"/>
+              <rect x="516" y="40" width="20" height="32" rx="2"/><rect x="576" y="14" width="20" height="58" rx="2"/>
+              <rect x="606" y="50" width="20" height="22" rx="2"/>
+            </g>
+            <g fill="#d1584f">
+              <rect x="66" y="72" width="20" height="18" rx="2"/><rect x="156" y="72" width="20" height="10" rx="2"/>
+              <rect x="246" y="72" width="20" height="26" rx="2"/><rect x="306" y="72" width="20" height="14" rx="2"/>
+              <rect x="366" y="72" width="20" height="22" rx="2"/><rect x="426" y="72" width="20" height="8" rx="2"/>
+              <rect x="486" y="72" width="20" height="30" rx="2"/><rect x="546" y="72" width="20" height="12" rx="2"/>
+            </g>
+          </svg>
+          <div class="rang">
+            <span class="mesures">
+              <span class="mesure">Par jour <b>+0,59 SOL</b></span>
+              <span class="mesure">Tokens / jour actif <b>8,8</b></span>
+              <span class="mesure">Journées gagnantes <b>13 / 21</b></span>
+              <span class="mesure">Inactivité <b>0 j</b></span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Onglet Tokens -->
+      <div data-panneau="tokens" hidden>
+        <div class="surface">
+          <table class="data">
+            <thead>
+              <tr>
+                <th style="width:52px">Pris</th>
+                <th>Token</th>
+                <th class="droite">Gain %</th>
+                <th class="droite">Perte</th>
+                <th class="droite">Délai</th>
+                <th class="droite">Net</th>
+              </tr>
+            </thead>
+            <tbody id="corps-tokens"></tbody>
+          </table>
+        </div>
+        <div class="barre-actions" style="margin-top:12px">
+          <button class="bouton fantome">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            Ajouter un token
+          </button>
+          <span class="total-jour">44 relevés · 35 pris · net <b class="pos">+7,90 SOL</b></span>
+        </div>
+      </div>
+
+      <!-- Onglet Journées -->
+      <div data-panneau="journees" hidden>
+        <div class="surface">
+          <table class="data">
+            <thead>
+              <tr>
+                <th>Journée</th>
+                <th>État</th>
+                <th class="droite">Tokens</th>
+                <th class="droite">Pris</th>
+                <th class="droite">Net</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody id="corps-journees"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Onglet Réglages -->
+      <div data-panneau="reglages" hidden>
+        <div class="surface">
+          <div class="reglage"><div><div class="l">Mise par trade</div><div class="d">Engagée sur chaque token pris</div></div><span class="saisie-champ">0,50 SOL</span></div>
+          <div class="reglage"><div><div class="l">Objectif</div><div class="d">Montée minimum pour qu’un lancement compte comme réussi</div></div><span class="saisie-champ">200 %</span></div>
+          <div class="reglage"><div><div class="l">Perte par défaut</div><div class="d">Appliquée quand l’objectif n’est pas atteint</div></div><span class="saisie-champ">−88 %</span></div>
+          <div class="reglage"><div><div class="l">Frais par trade</div><div class="d">Fixes, retirés du net</div></div><span class="saisie-champ">0,01 SOL</span></div>
+          <div class="reglage"><div><div class="l">Taux visé</div><div class="d">Seuil du tag « Rentable »</div></div><span class="saisie-champ">30 %</span></div>
+        </div>
+
+        <div class="barre-actions" style="margin-top:12px">
+          <button class="bouton fantome">Appliquer aux nouveaux wallets</button>
+          <button class="bouton fantome">Forcer le tag</button>
+          <button class="bouton danger" style="margin-left:auto">Supprimer ce wallet</button>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+  /* ---------------------------------------------------------------------
+     Données fictives. Aucune donnée réelle n'entre dans cette maquette.
+     Les champs reprennent LigneWallet (lib/portefeuille.ts).
+     --------------------------------------------------------------------- */
+  const WALLETS = [
+    { label: 'Sniper Bleu',     adr: '7xKq…9fTu', status: 'test',      tag: 'Rentable',      n: 184, nPris: 141, taux: 34.2, netSol: 12.40, jours: 21, joursMin: 14, seuil: 40 },
+    { label: 'Orage Lent',      adr: 'Bq7s…Rm41', status: 'test',      tag: 'Rentable',      n: 77,  nPris: 63,  taux: 38.0, netSol: 9.05,  jours: 14, joursMin: 14, seuil: 40 },
+    { label: 'Renard Matinal',  adr: 'D4mP…Lk20', status: 'test',      tag: 'Limite',        n: 96,  nPris: 74,  taux: 29.1, netSol: 6.15,  jours: 11, joursMin: 14, seuil: 40 },
+    { label: 'Aiguille Nord',   adr: '9Ttv…B3xe', status: 'test',      tag: 'Pas rentable',  n: 58,  nPris: 41,  taux: 22.4, netSol: -1.80, jours: 8,  joursMin: 14, seuil: 40 },
+    { label: 'Verre Fumé',      adr: 'Hs5c…Pa17', status: 'screening', tag: 'Rentable',      n: 44,  nPris: 35,  taux: 40.9, netSol: 7.90,  jours: 0,  joursMin: 14, seuil: 40 },
+    { label: 'Pivert Calme',    adr: 'Ge2n…Wq88', status: 'screening', tag: 'À compléter',   n: 23,  nPris: 18,  taux: 26.1, netSol: 1.40,  jours: 0,  joursMin: 14, seuil: 40 },
+    { label: 'Sable Tiède',     adr: 'Jw8r…Nc73', status: 'screening', tag: 'À surveiller',  n: 31,  nPris: 24,  taux: 32.3, netSol: 2.60,  jours: 0,  joursMin: 14, seuil: 40 },
+    { label: 'Mouette Rapide',  adr: 'Ks9d…Tv04', status: 'valide',    tag: 'Rentable',      n: 210, nPris: 168, taux: 36.2, netSol: 15.70, jours: 28, joursMin: 14, seuil: 40 },
+    { label: 'Chêne Sec',       adr: 'Rp3f…Xx52', status: 'rejete',    tag: 'Pas rentable',  n: 132, nPris: 101, taux: 14.4, netSol: -8.60, jours: 16, joursMin: 14, seuil: 40 },
+  ];
+
+  const ETATS = {
+    screening: { titre: 'Screening', point: 'gris',   unite: 'tokens notés' },
+    test:      { titre: 'En test',   point: 'bleu',   unite: 'journées' },
+    valide:    { titre: 'Validés',   point: 'vert',   unite: '' },
+    rejete:    { titre: 'Écartés',   point: 'gris',   unite: '' },
+  };
+
+  const CLASSE_TAG = {
+    'Rentable': 'rentable', 'Limite': 'limite', 'À surveiller': 'surveiller',
+    'Pas rentable': 'pas', 'À compléter': 'completer',
+  };
+
+  const TOKENS = [
+    { nom: 'MOONCAT',  gain: 320, perte: null, delai: 18, pris: true },
+    { nom: 'PIXELDOG', gain: null, perte: -88, delai: 12, pris: false },
+    { nom: 'VOLTAX',   gain: 140, perte: null, delai: 41, pris: true },
+    { nom: 'GRIMACE',  gain: 280, perte: null, delai: 9,  pris: true },
+    { nom: 'NOVA7',    gain: 95,  perte: null, delai: 27, pris: true },
+    { nom: 'TIDALFOX', gain: null, perte: -92, delai: 6,  pris: true },
+    { nom: 'ZEPHYR',   gain: 410, perte: null, delai: 15, pris: true },
+  ];
+
+  const JOURNEES = [
+    { jour: '06/10/2026', etat: 'Actif',   tokens: 12, pris: 9, net: 1.50, note: '' },
+    { jour: '05/10/2026', etat: 'Actif',   tokens: 7,  pris: 6, net: 0.80, note: 'Peu de lancements' },
+    { jour: '04/10/2026', etat: 'Inactif', tokens: 0,  pris: 0, net: 0,    note: 'Aucun trade' },
+    { jour: '03/10/2026', etat: 'Actif',   tokens: 11, pris: 8, net: -0.40, note: '' },
+    { jour: '02/10/2026', etat: 'Actif',   tokens: 9,  pris: 7, net: 2.10, note: '' },
+  ];
+
+  const sol = (v) => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2).replace('.', ',');
+  const pct = (v) => v.toFixed(1).replace('.', ',') + ' %';
+
+  let tri = { colonne: 'netSol', sens: 'desc' };
+  let segment = 'tous';
+  let recherche = '';
+
+  /* ---------- Tableau des wallets ---------- */
+  function lignesVisibles() {
+    const q = recherche.trim().toLowerCase();
+    const liste = WALLETS.filter(
+      (w) =>
+        (segment === 'tous' || w.status === segment) &&
+        (q === '' || w.label.toLowerCase().includes(q) || w.adr.toLowerCase().includes(q)),
+    );
+    const ordre = { test: 0, screening: 1, valide: 2, rejete: 3 };
+    const signe = tri.sens === 'asc' ? 1 : -1;
+
+    return liste.sort((a, b) => {
+      const ecart =
+        tri.colonne === 'label' ? a.label.localeCompare(b.label, 'fr')
+        : tri.colonne === 'status' ? ordre[a.status] - ordre[b.status]
+        : a[tri.colonne] - b[tri.colonne];
+      // Le nom départage toujours : deux nets égaux ne doivent pas danser.
+      return ecart !== 0 ? ecart * signe : a.label.localeCompare(b.label, 'fr');
+    });
+  }
+
+  function rendreTableau() {
+    const hote = document.getElementById('tableau');
+    hote.querySelectorAll('.ligne').forEach((n) => n.remove());
+
+    for (const w of lignesVisibles()) {
+      const etat = ETATS[w.status];
+      const enCours = w.status === 'screening' || w.status === 'test';
+      const fait = w.status === 'screening' ? w.n : w.jours;
+      const plancher = w.status === 'screening' ? w.seuil : w.joursMin;
+      const part = enCours ? Math.min(1, fait / plancher) : 1;
+
+      const ligne = document.createElement('div');
+      ligne.className = 'ligne';
+      ligne.innerHTML = `
+        <div class="cell">
+          <span class="av-wallet" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="2.4" y="4.4" width="11.2" height="7.6" rx="2" stroke="currentColor" stroke-width="1.3"/><path d="M10.2 7.4h3.4v3h-3.4a1.5 1.5 0 0 1 0-3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+          </span>
+          <button class="nom-wallet" data-ouvrir="${w.label}">${w.label}</button>
+          <span class="adr">${w.adr}</span>
+        </div>
+        <div class="cell">
+          <span class="etat"><span class="point ${etat.point}"></span> ${etat.titre}</span>
+          <span class="tag ${CLASSE_TAG[w.tag]}">${w.tag}</span>
+        </div>
+        <div class="cell droite">
+          <span class="valeur">${w.n} <span class="sur">/ ${w.nPris} pris</span></span>
+        </div>
+        <div class="cell droite repli"><span class="valeur">${pct(w.taux)}</span></div>
+        <div class="cell repli">
+          <div class="colonne-jauge">
+            <span class="valeur" style="font-size:12px">${enCours ? `${fait} / ${plancher}` : '—'}</span>
+            <div class="jauge"><i class="${part >= 1 && enCours ? 'plein' : ''}" style="width:${Math.round(part * 100)}%"></i></div>
+          </div>
+        </div>
+        <div class="cell droite">
+          <span class="valeur ${w.netSol >= 0 ? 'pos' : 'neg'}">${sol(w.netSol)} SOL</span>
+        </div>`;
+      hote.append(ligne);
+    }
+
+    hote.querySelectorAll('[data-ouvrir]').forEach((b) =>
+      b.addEventListener('click', () => ouvrirDetail(b.dataset.ouvrir)),
+    );
+  }
+
+  /* ---------- Entonnoir (section du dashboard) ---------- */
+  function carteWallet(w) {
+    const enCours = w.status === 'screening' || w.status === 'test';
+    const fait = w.status === 'screening' ? w.n : w.jours;
+    const plancher = w.status === 'screening' ? w.seuil : w.joursMin;
+    const part = enCours ? Math.min(1, fait / plancher) : 1;
+    const pret = enCours && part >= 1;
+
+    const actions =
+      w.status === 'screening'
+        ? (pret ? '<button class="mini oui">Lancer le test</button>' : '') + '<button class="mini non">Écarter</button>'
+        : w.status === 'test'
+          ? (pret ? '<button class="mini oui">Valider</button><button class="mini non">Écarter</button>' : '')
+          : '<button class="mini">Rouvrir</button>';
+
+    return `
+      <div class="carte-wallet ${pret ? 'reclame' : ''}">
+        <div class="haut">
+          <button class="nom" data-ouvrir="${w.label}" style="padding:0;text-align:left">${w.label}</button>
+          <span class="tag ${CLASSE_TAG[w.tag]}" style="margin-left:auto">${w.tag}</span>
+        </div>
+        <div class="jauge"><i class="${pret ? 'plein' : ''}" style="width:${Math.round(part * 100)}%"></i></div>
+        <div class="pied-carte">
+          <span class="murmure">${enCours ? `${fait} / ${plancher} ${ETATS[w.status].unite}` : 'conclu'}</span>
+          <span class="murmure ${w.netSol >= 0 ? 'pos' : 'neg'}" style="margin-left:auto">${sol(w.netSol)} SOL</span>
+        </div>
+        ${pret ? '<span class="appel">Prêt à trancher</span>' : ''}
+        ${actions ? `<div class="actions-carte">${actions}</div>` : ''}
+      </div>`;
+  }
+
+  function rendreEntonnoir() {
+    document.getElementById('entonnoir').innerHTML = Object.entries(ETATS)
+      .map(([cle, etat]) => {
+        const dedans = WALLETS
+          .filter((w) => w.status === cle)
+          // Ce qui réclame une décision remonte en tête, comme dans parEtat().
+          .sort((a, b) => {
+            const pretA = (a.status === 'screening' ? a.n / a.seuil : a.jours / a.joursMin) >= 1;
+            const pretB = (b.status === 'screening' ? b.n / b.seuil : b.jours / b.joursMin) >= 1;
+            return pretA === pretB ? b.netSol - a.netSol : pretA ? -1 : 1;
+          });
+        return `
+          <div class="colonne">
+            <div class="tete-colonne">
+              <span class="point ${etat.point}"></span>${etat.titre}
+              <span class="compte">${dedans.length}</span>
+            </div>
+            ${dedans.map(carteWallet).join('')}
+          </div>`;
+      })
+      .join('');
+
+    document.querySelectorAll('#entonnoir [data-ouvrir]').forEach((b) =>
+      b.addEventListener('click', () => ouvrirDetail(b.dataset.ouvrir)),
+    );
+  }
+
+  /* ---------- Détail ---------- */
+  function ouvrirDetail(label) {
+    const w = WALLETS.find((x) => x.label === label) || WALLETS[0];
+    const etat = ETATS[w.status];
+
+    document.getElementById('detail-nom').textContent = w.label;
+    document.getElementById('detail-adr').textContent = w.adr;
+    document.getElementById('detail-etat').innerHTML = `<span class="point ${etat.point}"></span> ${etat.titre}`;
+    const tag = document.getElementById('detail-tag');
+    tag.className = 'tag ' + CLASSE_TAG[w.tag];
+    tag.textContent = w.tag;
+
+    const pret = w.status === 'test' ? w.jours >= w.joursMin : w.n >= w.seuil;
+    document.getElementById('detail-actions').innerHTML =
+      w.status === 'screening'
+        ? `${pret ? '<button class="bouton">Lancer le test</button>' : ''}<button class="bouton fantome">Écarter</button>`
+        : w.status === 'test'
+          ? pret
+            ? '<span class="etat"><span class="point orange"></span> Verdict disponible</span><button class="bouton">Valider</button><button class="bouton fantome">Écarter</button>'
+            : `<span class="etat"><span class="point bleu"></span> ${w.joursMin - w.jours} journées avant le verdict</span>`
+          : '<button class="bouton fantome">Rouvrir le test</button>';
+
+    // L'onglet Journées n'existe que pendant la phase de test.
+    const ongletJournees = document.querySelector('[data-onglet="journees"]');
+    ongletJournees.hidden = w.status === 'screening';
+    if (w.status === 'screening') choisirOnglet('bilan');
+
+    montrer('detail');
+  }
+
+  function rendreTokens() {
+    document.getElementById('corps-tokens').innerHTML = TOKENS.map((t) => {
+      const net = t.gain === null ? -0.45 : t.gain >= 200 ? (t.gain / 100) * 0.5 - 0.51 : -0.5;
+      return `
+        <tr class="${t.pris ? '' : 'ecarte'}">
+          <td><span class="case ${t.pris ? 'cochee' : ''}">${t.pris ? '<svg width="9" height="9" viewBox="0 0 16 16" fill="none"><path d="m3 8.4 3.2 3.2L13 4.8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' : ''}</span></td>
+          <td class="nom">${t.nom}</td>
+          <td class="droite">${t.gain === null ? 'rug' : t.gain}</td>
+          <td class="droite ${t.perte === null ? 'sourdine' : ''}">${t.perte === null ? '—' : t.perte}</td>
+          <td class="droite">${t.delai} min</td>
+          <td class="droite ${!t.pris ? 'sourdine' : net >= 0 ? 'pos' : 'neg'}">${t.pris ? sol(net) : 'écarté'}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  function rendreJournees() {
+    document.getElementById('corps-journees').innerHTML = JOURNEES.map(
+      (j) => `
+        <tr>
+          <td>${j.jour}</td>
+          <td><span class="etat"><span class="point ${j.etat === 'Actif' ? 'vert' : 'gris'}"></span> ${j.etat}</span></td>
+          <td class="droite">${j.tokens}</td>
+          <td class="droite">${j.pris}</td>
+          <td class="droite ${j.net > 0 ? 'pos' : j.net < 0 ? 'neg' : 'sourdine'}">${sol(j.net)}</td>
+          <td class="${j.note ? '' : 'sourdine'}" style="font-family:var(--sans)">${j.note || '—'}</td>
+        </tr>`,
+    ).join('');
+  }
+
+  function choisirOnglet(nom) {
+    document.querySelectorAll('#onglets .pilule').forEach((p) =>
+      p.setAttribute('aria-selected', String(p.dataset.onglet === nom)),
+    );
+    document.querySelectorAll('[data-panneau]').forEach((p) => {
+      p.hidden = p.dataset.panneau !== nom;
+    });
+  }
+
+  /* ---------- Navigation ---------- */
+  function montrer(ecran) {
+    document.querySelectorAll('[data-ecran]').forEach((s) => {
+      s.hidden = s.dataset.ecran !== ecran;
+    });
+    document.getElementById('zone').scrollTop = 0;
+  }
+
+  document.querySelectorAll('.nav').forEach((b) =>
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.nav').forEach((x) => x.removeAttribute('aria-current'));
+      b.setAttribute('aria-current', 'page');
+      montrer(b.dataset.vue);
+    }),
+  );
+
+  document.getElementById('retour').addEventListener('click', () => {
+    document.querySelectorAll('.nav').forEach((x) => x.removeAttribute('aria-current'));
+    document.querySelector('[data-vue="wallets"]').setAttribute('aria-current', 'page');
+    montrer('wallets');
+  });
+
+  document.getElementById('plier').addEventListener('click', () =>
+    document.getElementById('app').classList.toggle('replie'),
+  );
+
+  document.querySelectorAll('#segments button').forEach((b) =>
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#segments button').forEach((x) => x.setAttribute('aria-selected', 'false'));
+      b.setAttribute('aria-selected', 'true');
+      segment = b.dataset.seg;
+      rendreTableau();
+    }),
+  );
+
+  document.getElementById('recherche').addEventListener('input', (e) => {
+    recherche = e.target.value;
+    rendreTableau();
+  });
+
+  document.querySelectorAll('#tableau .th[data-tri]').forEach((th) =>
+    th.addEventListener('click', () => {
+      const colonne = { label: 'label', status: 'status', n: 'n', taux: 'taux', jours: 'jours', net: 'netSol' }[th.dataset.tri];
+      tri = tri.colonne === colonne ? { colonne, sens: tri.sens === 'asc' ? 'desc' : 'asc' } : { colonne, sens: 'desc' };
+      rendreTableau();
+    }),
+  );
+
+  document.querySelectorAll('#onglets .pilule').forEach((p) =>
+    p.addEventListener('click', () => choisirOnglet(p.dataset.onglet)),
+  );
+
+  document.querySelectorAll('.tete-entree').forEach((t) =>
+    t.addEventListener('click', () => {
+      const corps = t.parentElement.querySelector('.corps-entree');
+      if (corps) corps.hidden = !corps.hidden;
+    }),
+  );
+
+  rendreTableau();
+  rendreEntonnoir();
+  rendreTokens();
+  rendreJournees();
+</script>

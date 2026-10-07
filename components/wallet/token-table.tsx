@@ -25,7 +25,7 @@ export function TokenTable({
 }) {
   return (
     <section className="mb-6">
-      <h2 className="mb-2 px-4 text-[13px] tracking-wide text-ink-2 uppercase">
+      <h2 className="mb-2 text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
         Tokens
       </h2>
 
@@ -37,8 +37,8 @@ export function TokenTable({
           <span className="min-w-0 flex-1">Nom</span>
           <span className="w-16 shrink-0 text-right">Gain %</span>
           <span className="w-16 shrink-0 text-right">Perte %</span>
-          <span className="w-16 shrink-0 text-right">Délai</span>
-          <span className="w-24 shrink-0 text-right">Résultat</span>
+          <span className="w-14 shrink-0 text-right">Délai</span>
+          <span className="w-32 shrink-0 text-right">Résultat</span>
           <span className="w-20 shrink-0 text-right">Cumul</span>
           <span className="w-7 shrink-0" />
         </div>
@@ -58,7 +58,7 @@ export function TokenTable({
         <button
           type="button"
           onClick={onAdd}
-          className="flex w-full items-center gap-2 px-4 py-3 text-left text-[17px] text-blue transition hover:bg-fill-2 active:bg-fill"
+          className="flex w-full items-center gap-2 px-4 py-3 text-left text-[17px] font-medium text-ink transition hover:bg-fill-2 active:bg-fill"
         >
           <PlusIcon className="h-[17px] w-[17px]" />
           Ajouter un token
@@ -101,8 +101,8 @@ function TokenLigne({
         // Séparateur fin, décalé à gauche comme dans les listes iOS.
         'after:absolute after:right-0 after:bottom-0 after:left-4 after:h-px',
         'after:bg-separator after:content-[""]',
-        // Mobile : carte empilée. Desktop : ligne de tableau.
-        'px-4 py-3 md:flex md:items-center md:gap-3 md:py-2',
+        // Mobile : deux lignes. Desktop : une ligne de tableau.
+        'px-4 py-2 md:flex md:items-center md:gap-3',
       )}
     >
       <span className="hidden w-6 shrink-0 text-[13px] text-ink-3 tabular-nums md:block">
@@ -110,8 +110,8 @@ function TokenLigne({
       </span>
 
       {/* Nom — pleine largeur sur mobile, colonne souple sur desktop */}
-      <div className="mb-2 flex items-center gap-2 md:mb-0 md:min-w-0 md:flex-1">
-        <span className="w-6 shrink-0 text-[13px] text-ink-3 tabular-nums md:hidden">
+      <div className="flex items-center gap-2 md:mb-0 md:min-w-0 md:flex-1">
+        <span className="w-5 shrink-0 text-[13px] text-ink-3 tabular-nums md:hidden">
           {index + 1}
         </span>
         <TextField
@@ -119,7 +119,7 @@ function TokenLigne({
           value={token.name ?? ''}
           onChange={(value) => onChange(token.id, { name: value.trim() === '' ? null : value })}
           placeholder={`Token ${index + 1}`}
-          className="text-[17px] md:text-[15px]"
+          className="text-[15px]"
         />
         {token.source === 'helius' ? (
           <span className="shrink-0 rounded bg-fill px-1.5 py-0.5 text-[11px] text-ink-2">
@@ -137,8 +137,8 @@ function TokenLigne({
       </div>
 
       {/* Saisies — en grille sur mobile, en colonnes sur desktop */}
-      <div className="grid grid-cols-3 gap-3 md:contents">
-        <Champ label="Gain %" className="md:w-16 md:shrink-0">
+      <div className="mt-1 grid grid-cols-3 gap-2 pl-7 md:mt-0 md:pl-0 md:contents">
+        <Champ label="Gain" className="md:w-16 md:shrink-0">
           <NumberField
             ariaLabel={`Gain du token ${index + 1} en pourcentage`}
             value={token.gain}
@@ -146,7 +146,7 @@ function TokenLigne({
           />
         </Champ>
 
-        <Champ label="Perte %" className="md:w-16 md:shrink-0">
+        <Champ label="Perte" className="md:w-16 md:shrink-0">
           <NumberField
             ariaLabel={`Perte du token ${index + 1} en pourcentage`}
             value={token.perteRug}
@@ -156,7 +156,7 @@ function TokenLigne({
           />
         </Champ>
 
-        <Champ label="Délai (min)" className="md:w-16 md:shrink-0">
+        <Champ label="Délai" className="md:w-14 md:shrink-0">
           <NumberField
             ariaLabel={`Délai avant dump du token ${index + 1} en minutes`}
             value={token.delay}
@@ -166,7 +166,7 @@ function TokenLigne({
       </div>
 
       {/* Résultat calculé */}
-      <div className="mt-3 flex items-baseline justify-between border-t border-separator pt-2 md:mt-0 md:w-24 md:shrink-0 md:flex-col md:items-end md:justify-center md:border-0 md:pt-0">
+      <div className="mt-1.5 flex items-baseline justify-between pl-7 md:mt-0 md:w-32 md:shrink-0 md:flex-row md:items-baseline md:justify-end md:pl-0">
         <span className="text-[13px] text-ink-2 md:hidden">Résultat</span>
         {resultat === null ? (
           <span className="text-[15px] text-ink-3">—</span>
@@ -175,7 +175,7 @@ function TokenLigne({
             <span className={cn('text-[15px] font-medium tabular-nums', ton)}>
               {formatSol(resultat.sol)}
             </span>
-            <span className="block text-[12px] text-ink-2 tabular-nums">
+            <span className="block text-[12px] text-ink-3 tabular-nums md:ml-1.5 md:inline">
               {formatPercentExact(resultat.percent, { sign: true })}
               {/* Sur mobile il n'y a pas de colonne Cumul : on l'ajoute ici. */}
               <span className="md:hidden">
@@ -219,11 +219,15 @@ function Champ({
   className?: string
 }) {
   return (
-    <div className={className}>
-      <span className="mb-0.5 block text-[12px] text-ink-2 md:hidden">{label}</span>
-      <div className="rounded-[8px] bg-card-2 px-2 py-1.5 transition-colors focus-within:bg-fill md:bg-transparent md:px-1.5 md:hover:bg-card-2 md:focus-within:bg-fill">
-        {children}
-      </div>
-    </div>
+    <label
+      className={cn(
+        'flex min-w-0 items-baseline gap-1 rounded-[8px] bg-card-2 px-2 py-1 text-[15px]',
+        'md:block md:rounded-none md:bg-transparent md:px-0 md:py-0',
+        className,
+      )}
+    >
+      <span className="shrink-0 text-[11px] text-ink-3 md:hidden">{label}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+    </label>
   )
 }

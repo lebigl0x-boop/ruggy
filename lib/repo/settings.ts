@@ -12,22 +12,27 @@ import type { GlobalSettings } from './types'
 const SETTINGS_ID = 1
 
 /** Réglages globaux. La ligne est créée à l'ouverture de la base. */
-export function getSettings(): GlobalSettings {
-  const row = db.select().from(settings).where(eq(settings.id, SETTINGS_ID)).get()
+export async function getSettings(): Promise<GlobalSettings> {
+  const [row] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.id, SETTINGS_ID))
+    .limit(1)
   if (!row) return { solPriceEur: null, defaults: { ...DEFAULT_STRATEGY } }
   return mapSettings(row)
 }
 
-export function updateSolPrice(solPriceEur: number | null): void {
-  db.update(settings)
+export async function updateSolPrice(solPriceEur: number | null): Promise<void> {
+  await db
+    .update(settings)
     .set({ solPriceEur, updatedAt: new Date().toISOString() })
     .where(eq(settings.id, SETTINGS_ID))
-    .run()
 }
 
 /** Enregistre une stratégie comme modèle des prochains wallets. */
-export function updateDefaults(strategy: Strategy): void {
-  db.update(settings)
+export async function updateDefaults(strategy: Strategy): Promise<void> {
+  await db
+    .update(settings)
     .set({
       defaultMise: strategy.mise,
       defaultObjectif: strategy.objectif,
@@ -37,5 +42,4 @@ export function updateDefaults(strategy: Strategy): void {
       updatedAt: new Date().toISOString(),
     })
     .where(eq(settings.id, SETTINGS_ID))
-    .run()
 }

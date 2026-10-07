@@ -1,12 +1,10 @@
 import type { Metadata, Viewport } from 'next'
 
 import { AppShell } from '@/components/app-shell'
-import { WalletListPanel } from '@/components/wallets/wallet-list-panel'
+import { clientServeur } from '@/lib/auth/supabase'
 import { todayIso } from '@/lib/format'
 import { listFileDuMatin } from '@/lib/repo/days'
 import { getSettings } from '@/lib/repo/settings'
-import { listWallets } from '@/lib/repo/wallets'
-import { summarize } from '@/lib/summary'
 
 import './globals.css'
 
@@ -19,33 +17,49 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#F2F2F7' },
-    { media: '(prefers-color-scheme: dark)', color: '#000000' },
-  ],
+  // Un seul thème : l'app est sombre, quel que soit le réglage du système.
+  themeColor: '#0d0d0e',
 }
 
 // La base est lue à chaque requête : rien à mettre en cache sur une app locale.
 export const dynamic = 'force-dynamic'
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const settings = getSettings()
-  const summaries = listWallets().map((wallet) => summarize(wallet, settings))
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const supabase = await clientServeur()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  // Pas de session : seule la page de connexion peut s'afficher (le
+  // middleware y a déjà renvoyé le reste). On la rend nue — ni rail, ni
+  // requête vers la base, qui n'a rien à dire à un visiteur.
+  if (user === null) {
+    return (
+      <html lang="fr">
+        <body>{children}</body>
+      </html>
+    )
+  }
 
   // Les journées en attente, toutes phases de test confondues : c'est ce
-  // chiffre qui fait remonter le relevé du matin en tête de liste.
-  const journeesAFaire = listFileDuMatin(todayIso()).reduce(
-    (total, entree) => total + entree.jours.length,
-    0,
-  )
+  // chiffre que porte la pastille du rail.
+  const [file, settings] = await Promise.all([
+    listFileDuMatin(todayIso()),
+    getSettings(),
+  ])
+  const journeesAFaire = file.reduce((total, entree) => total + entree.jours.length, 0)
 
   return (
     <html lang="fr">
       <body>
         <AppShell
-          sidebar={
-            <WalletListPanel wallets={summaries} journeesAFaire={journeesAFaire} />
-          }
+          journeesAFaire={journeesAFaire}
+          solPriceEur={settings.solPriceEur}
+          email={user?.email ?? null}
         >
           {children}
         </AppShell>

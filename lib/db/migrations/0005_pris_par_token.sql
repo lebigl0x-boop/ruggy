@@ -1,1 +1,0 @@
-ALTER TABLE `tokens` ADD `pris` integer DEFAULT true NOT NULL;

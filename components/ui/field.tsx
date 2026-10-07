@@ -20,6 +20,8 @@ export function NumberField({
   className,
   ariaLabel,
   normalize,
+  dataChamp,
+  dataLigne,
 }: {
   value: number | null
   onChange: (value: number | null) => void
@@ -29,6 +31,13 @@ export function NumberField({
   ariaLabel: string
   /** Rabat la valeur lue dans ses bornes avant de la transmettre. */
   normalize?: (value: number | null) => number | null
+  /**
+   * Repères de navigation au clavier : quel champ, sur quelle ligne. Ils
+   * permettent de retrouver le même champ sur la ligne voisine sans tenir
+   * une référence par cellule.
+   */
+  dataChamp?: string
+  dataLigne?: string
 }) {
   const [texte, setTexte] = useState(() => toInputValue(value))
   const actif = useRef(false)
@@ -45,6 +54,8 @@ export function NumberField({
         type="text"
         inputMode="decimal"
         aria-label={ariaLabel}
+        data-champ={dataChamp}
+        data-ligne={dataLigne}
         value={texte}
         placeholder={placeholder}
         onFocus={() => {
@@ -77,12 +88,17 @@ export function TextField({
   placeholder,
   className,
   ariaLabel,
+  dataChamp,
+  dataLigne,
 }: {
   value: string
   onChange: (value: string) => void
   placeholder?: string
   className?: string
   ariaLabel: string
+  /** Repères de navigation au clavier, voir `NumberField`. */
+  dataChamp?: string
+  dataLigne?: string
 }) {
   const [texte, setTexte] = useState(value)
   const actif = useRef(false)
@@ -95,6 +111,8 @@ export function TextField({
     <input
       type="text"
       aria-label={ariaLabel}
+      data-champ={dataChamp}
+      data-ligne={dataLigne}
       value={texte}
       placeholder={placeholder}
       onFocus={() => {

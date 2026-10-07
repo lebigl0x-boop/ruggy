@@ -8,11 +8,16 @@ export const STATUS_LABELS: Record<WalletStatus, string> = {
   rejete: 'Écarté',
 }
 
-const TONS: Record<WalletStatus, string> = {
-  screening: 'text-gray bg-fill',
-  test: 'text-blue bg-[color-mix(in_srgb,var(--c-blue)_15%,transparent)]',
-  valide: 'text-green bg-[color-mix(in_srgb,var(--c-green)_15%,transparent)]',
-  rejete: 'text-red bg-[color-mix(in_srgb,var(--c-red)_15%,transparent)]',
+/**
+ * Le statut porte une pastille de couleur, pas un fond coloré : il cohabite
+ * toujours avec un tag, qui lui est teinté. Deux aplats côte à côte se
+ * disputeraient l'œil pour rien.
+ */
+const POINTS: Record<WalletStatus, string> = {
+  screening: 'bg-gray',
+  test: 'bg-blue',
+  valide: 'bg-green',
+  rejete: 'bg-ink-3',
 }
 
 /**
@@ -35,11 +40,14 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[13px] font-medium whitespace-nowrap',
-        TONS[status],
+        'inline-flex shrink-0 items-center gap-2 rounded-full bg-fill px-2.5 py-1 text-[12px] font-medium whitespace-nowrap text-ink-2',
         className,
       )}
     >
+      <span
+        aria-hidden
+        className={cn('h-[7px] w-[7px] shrink-0 rounded-full', POINTS[status])}
+      />
       {STATUS_LABELS[status]}
       {detail ? <span className="opacity-70">{detail}</span> : null}
     </span>

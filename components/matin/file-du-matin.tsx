@@ -56,14 +56,27 @@ type EtatEntree =
  * champ du haut — c'est ce qui va vite —, puis on décoche dans le tableau les
  * tokens que le filtre d'entrée n'aurait pas pris.
  */
-export function FileDuMatin({ entrees }: { entrees: readonly EntreeMatin[] }) {
+export function FileDuMatin({
+  entrees,
+  ouvrir,
+}: {
+  entrees: readonly EntreeMatin[]
+  /**
+   * Wallet sur lequel ouvrir la file.
+   *
+   * On arrive souvent ici depuis la page d'un wallet précis : s'ouvrir sur
+   * le premier venu donne l'impression d'avoir été redirigé ailleurs.
+   */
+  ouvrir?: string
+}) {
   const [etats, setEtats] = useState<Record<string, EtatEntree>>({})
   const [brouillons, setBrouillons] = useState<Record<string, number>>({})
   // Rien à ouvrir côté serveur : la première journée fait l'affaire, et le
   // rendu reste identique des deux côtés.
-  const [ouvert, setOuvert] = useState<string | null>(
-    entrees.length > 0 ? cle(entrees[0]!) : null,
-  )
+  const [ouvert, setOuvert] = useState<string | null>(() => {
+    const demande = entrees.find((entree) => entree.walletId === ouvrir)
+    return demande ? cle(demande) : entrees.length > 0 ? cle(entrees[0]!) : null
+  })
   // Le focus ne part sur le champ qu'après une validation : à l'arrivée sur
   // la page, ouvrir le clavier d'autorité serait pénible sur mobile.
   const [focusAuto, setFocusAuto] = useState(false)
@@ -154,7 +167,10 @@ export function FileDuMatin({ entrees }: { entrees: readonly EntreeMatin[] }) {
   }
 
   return (
-    <div>
+    // Une journée se saisit dans une colonne, pas sur toute la largeur d'un
+    // écran : au-delà, le champ Nom fait mille pixels et l'œil traverse la
+    // ligne pour atteindre la case « Pris ».
+    <div className="max-w-[1000px]">
       {/* Avancement : avec les journées repliées, il reste visible sans
           avoir à remonter. */}
       <div className="mb-3">
@@ -172,7 +188,7 @@ export function FileDuMatin({ entrees }: { entrees: readonly EntreeMatin[] }) {
           <div
             className={cn(
               'h-full rounded-full transition-[width] duration-300',
-              restantes === 0 ? 'bg-green' : 'bg-blue',
+              restantes === 0 ? 'bg-green' : 'bg-ink-3',
             )}
             style={{ width: `${(faites / entrees.length) * 100}%` }}
           />
@@ -252,7 +268,7 @@ function Entete({
       <Link
         href={`/wallets/${entree.walletId}`}
         onClick={(event) => event.stopPropagation()}
-        className="min-w-0 truncate text-[17px] font-semibold text-ink hover:text-blue"
+        className="min-w-0 truncate text-[17px] font-semibold text-ink hover:underline"
       >
         {entree.label}
       </Link>
@@ -453,10 +469,23 @@ function CarteJournee({
 
   const vide = lignes.length === 0
 
+  /**
+   * ⌘↵ fait la seule chose sensée à l'endroit où on se trouve : verser la
+   * saisie rapide si le champ en contient, valider la journée sinon. Posé
+   * sur la carte entière, le raccourci marche depuis n'importe quelle
+   * cellule du tableau — c'est là qu'on est quand on finit de saisir.
+   */
+  function auClavier(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
+    event.preventDefault()
+    if (lu.tokens.length > 0) verser()
+    else if (!vide) onValider(lignes)
+  }
+
   return (
     // Pas d'`overflow-hidden` ici : il empêcherait la barre d'action de
     // coller au bas de l'écran. Les coins sont arrondis bloc par bloc.
-    <section className="rounded-card bg-card">
+    <section className="rounded-card bg-card" onKeyDown={auClavier}>
       <button
         type="button"
         onClick={onReplier}
@@ -471,12 +500,6 @@ function CarteJournee({
           ref={champ}
           value={saisie}
           onChange={(event) => setSaisie(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              verser()
-            }
-          }}
           rows={2}
           inputMode="text"
           spellCheck={false}
@@ -496,7 +519,7 @@ function CarteJournee({
             <button
               type="button"
               onClick={verser}
-              className="font-medium text-blue transition hover:opacity-70 active:opacity-50"
+              className="font-medium text-ink transition hover:opacity-70 active:opacity-50"
             >
               Ajouter {lu.tokens.length}{' '}
               {lu.tokens.length > 1 ? 'tokens' : 'token'} au tableau
@@ -560,10 +583,11 @@ function CarteJournee({
             'flex-1 rounded-bl-card px-4 py-3 text-[17px] transition',
             vide
               ? 'cursor-not-allowed text-ink-3'
-              : 'font-medium text-blue hover:bg-fill-2 active:bg-fill',
+              : 'font-medium text-ink hover:bg-fill-2 active:bg-fill',
           )}
         >
           Valider la journée
+          <span className="ml-1.5 text-[13px] text-ink-3">⌘↵</span>
         </button>
 
         <button

@@ -17,7 +17,7 @@ export function ListGroup({
   return (
     <section className={cn('mb-6', className)}>
       {title ? (
-        <h2 className="mb-2 px-4 text-[13px] font-normal tracking-wide text-ink-2 uppercase">
+        <h2 className="mb-2 text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
           {title}
         </h2>
       ) : null}
