@@ -53,7 +53,7 @@ export async function middleware(requete: NextRequest) {
     cible.pathname = '/connexion'
     // D'où l'on venait, pour y revenir une fois connecté.
     cible.searchParams.set('suite', chemin)
-    return NextResponse.redirect(cible)
+    return rediriger(cible, reponse)
   }
 
   // Déjà connecté : la page de connexion n'a plus rien à offrir.
@@ -61,10 +61,26 @@ export async function middleware(requete: NextRequest) {
     const cible = requete.nextUrl.clone()
     cible.pathname = '/'
     cible.search = ''
-    return NextResponse.redirect(cible)
+    return rediriger(cible, reponse)
   }
 
   return reponse
+}
+
+/**
+ * Rediriger sans perdre la session.
+ *
+ * `clientMiddleware` a pu écrire des jetons rafraîchis sur `reponse` : quand
+ * Supabase renouvelle un accès, il invalide l'ancien jeton de rafraîchissement
+ * du même coup. Repartir sur un `NextResponse.redirect` neuf jetterait les
+ * nouveaux cookies — le navigateur garderait un jeton que le serveur ne
+ * reconnaît plus, la requête suivante échouerait, et le portier renverrait
+ * encore vers /connexion. C'est la boucle de connexion classique.
+ */
+function rediriger(cible: URL, reponse: NextResponse): NextResponse {
+  const redirection = NextResponse.redirect(cible)
+  for (const cookie of reponse.cookies.getAll()) redirection.cookies.set(cookie)
+  return redirection
 }
 
 /**
