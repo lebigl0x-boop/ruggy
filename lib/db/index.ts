@@ -70,9 +70,12 @@ function creerClient(): BaseRuggers {
     // Le pooler de Supabase est en mode transaction : il ne sait pas tenir les
     // requêtes préparées d'une invocation à l'autre.
     prepare: false,
-    // Une invocation serverless traite une requête à la fois ; ouvrir
-    // davantage de connexions ne ferait que consommer le quota du pooler.
-    max: 1,
+    // Une instance Vercel peut traiter plusieurs requêtes en parallèle, et le
+    // préchargement des liens du rail en déclenche volontiers une poignée d'un
+    // coup. À `max: 1` elles faisaient la queue sur une seule connexion, et un
+    // ralentissement de la base se transformait en attente pour toutes. Cinq
+    // reste très en deçà du quota du pooler.
+    max: 5,
     // Par défaut, postgres.js garde ses connexions ouvertes indéfiniment. Une
     // instance serverless gelée entre deux requêtes retiendrait donc sa place
     // dans le pooler pour rien : on la rend après 20 s d'inactivité.

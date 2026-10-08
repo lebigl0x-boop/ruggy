@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { and, asc, eq } from 'drizzle-orm'
+import { cache } from 'react'
 
 import { db } from '../db'
 import { tokens, walletDays, wallets } from '../db/schema'
@@ -141,8 +142,15 @@ export type FileDuMatin = {
  *
  * Les matins sautés remontent dans la liste au lieu de disparaître — sans
  * quoi le décompte des jours d'observation serait faux.
+ *
+ * Mémorisé le temps d'une requête, par date : le layout racine l'appelle pour
+ * la pastille du rail, et la page d'accueil la rappelle aussitôt pour la liste
+ * elle-même. Les deux reçoivent `todayIso()`, donc la même clé — une seule
+ * requête part vers Supabase au lieu de deux.
  */
-export async function listFileDuMatin(aujourdhui: string): Promise<FileDuMatin[]> {
+export const listFileDuMatin = cache(async function listFileDuMatin(
+  aujourdhui: string,
+): Promise<FileDuMatin[]> {
   // Les wallets en test et leurs journées d'un seul coup. Cette fonction
   // tourne sur chaque page — c'est elle qui alimente la pastille du rail —
   // et chaque requête supplémentaire coûte un aller-retour vers Supabase.
@@ -186,4 +194,4 @@ export async function listFileDuMatin(aujourdhui: string): Promise<FileDuMatin[]
       }
     })
     .filter((entree) => entree.jours.length > 0)
-}
+})
