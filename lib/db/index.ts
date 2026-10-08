@@ -73,6 +73,15 @@ function creerClient(): BaseRuggers {
     // Une invocation serverless traite une requête à la fois ; ouvrir
     // davantage de connexions ne ferait que consommer le quota du pooler.
     max: 1,
+    // Par défaut, postgres.js garde ses connexions ouvertes indéfiniment. Une
+    // instance serverless gelée entre deux requêtes retiendrait donc sa place
+    // dans le pooler pour rien : on la rend après 20 s d'inactivité.
+    idle_timeout: 20,
+    // Filet de sécurité : une connexion ne vit pas plus de trente minutes,
+    // même sollicitée en continu.
+    max_lifetime: 60 * 30,
+    // Échouer vite plutôt que tenir l'invocation ouverte si le pooler sature.
+    connect_timeout: 10,
     // Les NOTICE de Postgres n'ont rien à faire dans les journaux de l'app.
     onnotice: () => {},
   })
@@ -89,8 +98,20 @@ function creerClientMemoire(): BaseRuggers {
   return drizzle(new PGlite(), { schema })
 }
 
-// En développement, Next.js recharge les modules à chaud : on garde une seule
-// connexion sur l'objet global pour ne pas en rouvrir une à chaque fois.
+// Une seule connexion par processus, en développement comme en production.
+//
+// En développement, Next.js recharge les modules à chaud : sans ce cache, un
+// pool s'ouvrirait à chaque rechargement.
+//
+// En production c'est plus grave encore. `db` est un Proxy : *chaque accès de
+// propriété* passe par ici. Un rendu qui fait `db.select(...)` puis
+// `db.query...` ouvrirait deux pools `postgres.js`, chacun avec sa connexion
+// TCP, et aucune ne serait refermée. Multiplié par les requêtes d'une page et
+// par les instances serverless de Vercel, Postgres atteint sa limite de
+// connexions en quelques minutes (EMAXCONN).
+//
+// Sur Vercel, le module global survit d'une invocation à l'autre tant que
+// l'instance reste chaude : le cache est donc exactement ce qu'il faut.
 const globalForDb = globalThis as unknown as { __ruggersDb?: BaseRuggers }
 
 function obtenirClient(): BaseRuggers {
@@ -98,7 +119,7 @@ function obtenirClient(): BaseRuggers {
   if (existant) return existant
 
   const client = creerClient()
-  if (process.env.NODE_ENV !== 'production') globalForDb.__ruggersDb = client
+  globalForDb.__ruggersDb = client
   return client
 }
 
