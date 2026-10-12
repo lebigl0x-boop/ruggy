@@ -34,7 +34,20 @@ export const SEUIL_CONSEIL_TOKENS = 20
 /** Au-delà, le wallet trade trop rarement pour valoir la peine d'être suivi. */
 export const SEUIL_CONSEIL_INACTIVITE = 50
 
-export type DayState = 'actif' | 'inactif'
+/**
+ * Où en est une journée.
+ *
+ * - `actif` : relevée, le wallet a tradé ;
+ * - `inactif` : relevée, il n'a rien lancé ce jour-là ;
+ * - `ouvert` : la journée a été ouverte pour être saisie au fil de l'eau,
+ *   mais rien n'y a encore été porté.
+ *
+ * `ouvert` et `inactif` se ressemblent en base — ni l'une ni l'autre n'a de
+ * token — mais ils disent le contraire l'un de l'autre : « je n'ai pas encore
+ * regardé » contre « j'ai regardé, il n'a rien fait ». Seul le second est une
+ * observation, et seul le second compte dans le plancher du test.
+ */
+export type DayState = 'actif' | 'inactif' | 'ouvert'
 
 /** Une journée observée, avec les tokens relevés ce jour-là. */
 export type DayInput = {
@@ -171,17 +184,23 @@ export function computeTestReport(
     }
   })
 
-  const joursObserves = results.length
-  const joursActifs = results.filter((jour) => jour.state === 'actif').length
+  // Une journée seulement ouverte n'est pas une observation : elle attend
+  // encore son relevé. La compter ferait avancer le plancher du test sans que
+  // personne n'ait rien regardé, et gonflerait le taux d'inactivité d'une
+  // journée qui n'a jamais été jugée.
+  const observes = results.filter((jour) => jour.state !== 'ouvert')
+
+  const joursObserves = observes.length
+  const joursActifs = observes.filter((jour) => jour.state === 'actif').length
   const joursInactifs = joursObserves - joursActifs
 
-  const tokensTotal = somme(results.map((jour) => jour.total))
-  const tokensPris = somme(results.map((jour) => jour.pris))
+  const tokensTotal = somme(observes.map((jour) => jour.total))
+  const tokensPris = somme(observes.map((jour) => jour.pris))
   const pnlSol = report.netSol
 
-  const gagnants = results.filter((jour) => jour.pnlSol > 0)
-  const meilleurJour = classerPar(results, (a, b) => b.pnlSol - a.pnlSol)
-  const pireJour = classerPar(results, (a, b) => a.pnlSol - b.pnlSol)
+  const gagnants = observes.filter((jour) => jour.pnlSol > 0)
+  const meilleurJour = classerPar(observes, (a, b) => b.pnlSol - a.pnlSol)
+  const pireJour = classerPar(observes, (a, b) => a.pnlSol - b.pnlSol)
   const totalGagnant = somme(gagnants.map((jour) => jour.pnlSol))
 
   const tauxInactivite =
@@ -201,7 +220,7 @@ export function computeTestReport(
     tokensParJourActif: joursActifs > 0 ? tokensTotal / joursActifs : 0,
     expositionMaxSol:
       strategy.mise *
-      results.reduce((max, jour) => Math.max(max, jour.pris), 0),
+      observes.reduce((max, jour) => Math.max(max, jour.pris), 0),
     report,
     pnlSol,
     pnlMoyenParJour: joursObserves > 0 ? pnlSol / joursObserves : 0,

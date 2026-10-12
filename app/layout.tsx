@@ -67,7 +67,10 @@ export default async function RootLayout({
     listFileDuMatin(todayIso()),
     getSettings(),
   ])
-  const journeesAFaire = file.reduce((total, entree) => total + entree.jours.length, 0)
+  const journeesAFaire = file.reduce(
+    (total, entree) => total + entree.aRelever.length,
+    0,
+  )
 
   return (
     <html lang="fr" suppressHydrationWarning>

@@ -412,49 +412,74 @@ describe('journées de test', () => {
 })
 
 describe('file du matin', () => {
-  it('réclame les journées manquantes, jour courant compris', async () => {
-    const wallet = await nouveauWallet()
-    await walletsRepo.updateWallet(wallet.id, {
-      status: 'test',
-      testStartedAt: '2026-10-01',
-    })
+  async function wallet(testStartedAt: string) {
+    const cree = await nouveauWallet()
+    await walletsRepo.updateWallet(cree.id, { status: 'test', testStartedAt })
+    return cree.id
+  }
+
+  it('rend toute la fenêtre d’observation, jour courant compris', async () => {
+    const id = await wallet('2026-10-01')
     await daysRepo.saveDay({
-      walletId: wallet.id,
+      walletId: id,
       day: '2026-10-02',
       state: 'inactif',
       tokens: [],
     })
 
-    const file = await daysRepo.listFileDuMatin('2026-10-05')
-    expect(file).toHaveLength(1)
-    // Le 5 est dedans : on relève au fil de l'eau, et ré-enregistrer une
-    // journée la remplace.
-    expect(file[0]!.jours).toEqual([
-      '2026-10-01',
-      '2026-10-03',
-      '2026-10-04',
-      '2026-10-05',
+    const [entree] = await daysRepo.listFileDuMatin('2026-10-05')
+    expect(entree!.journees).toEqual([
+      { day: '2026-10-01', etat: 'manquante' },
+      { day: '2026-10-02', etat: 'inactif' },
+      { day: '2026-10-03', etat: 'manquante' },
+      { day: '2026-10-04', etat: 'manquante' },
+      { day: '2026-10-05', etat: 'manquante' },
     ])
   })
 
-  it('sort le wallet de la file dès qu’il a son plancher de journées', async () => {
-    const wallet = await nouveauWallet()
-    await walletsRepo.updateWallet(wallet.id, {
-      status: 'test',
-      testStartedAt: '2026-10-01',
+  it('ne réclame pas le jour courant : une journée se juge une fois finie', async () => {
+    const id = await wallet('2026-10-01')
+    await daysRepo.saveDay({
+      walletId: id,
+      day: '2026-10-02',
+      state: 'inactif',
+      tokens: [],
     })
-    for (const day of ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']) {
+
+    const [entree] = await daysRepo.listFileDuMatin('2026-10-05')
+    expect(entree!.aRelever).toEqual(['2026-10-01', '2026-10-03', '2026-10-04'])
+  })
+
+  it('garde un wallet au plancher tant qu’il lui reste un trou', async () => {
+    const id = await wallet('2026-10-01')
+    for (const day of ['2026-10-01', '2026-10-03', '2026-10-04', '2026-10-05']) {
       await daysRepo.saveDay({
-        walletId: wallet.id,
+        walletId: id,
         day,
         state: 'actif',
         tokens: [{ gain: 150 }],
       })
     }
 
-    // Le 5 n'est pas saisi, mais le wallet attend désormais un verdict, pas
-    // un relevé de plus.
-    expect(await daysRepo.listFileDuMatin('2026-10-05')).toEqual([])
+    // Le plancher est atteint, mais le 2 manque : l'oublier figerait le
+    // décompte des jours d'observation sur un chiffre faux.
+    const [entree] = await daysRepo.listFileDuMatin('2026-10-06')
+    expect(entree!.aRelever).toEqual(['2026-10-02'])
+    expect(entree!.plancherAtteint).toBe(true)
+  })
+
+  it('réclame une journée ouverte mais jamais remplie', async () => {
+    const id = await wallet('2026-10-04')
+    await daysRepo.saveDay({
+      walletId: id,
+      day: '2026-10-04',
+      state: 'ouvert',
+      tokens: [],
+    })
+
+    const [entree] = await daysRepo.listFileDuMatin('2026-10-05')
+    expect(entree!.aRelever).toEqual(['2026-10-04'])
+    expect(entree!.plancherAtteint).toBe(false)
   })
 
   it('ignore les wallets qui ne sont pas en test', async () => {
@@ -463,14 +488,10 @@ describe('file du matin', () => {
   })
 
   it('ne garde pas un wallet dont tout est saisi', async () => {
-    const wallet = await nouveauWallet()
-    await walletsRepo.updateWallet(wallet.id, {
-      status: 'test',
-      testStartedAt: '2026-10-04',
-    })
+    const id = await wallet('2026-10-04')
     for (const day of ['2026-10-04', '2026-10-05']) {
       await daysRepo.saveDay({
-        walletId: wallet.id,
+        walletId: id,
         day,
         state: 'actif',
         tokens: [{ gain: 150 }],

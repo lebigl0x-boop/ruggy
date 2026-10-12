@@ -12,7 +12,7 @@ import {
 } from '@/components/jour/lignes-jour'
 import { computeWalletReport, type Strategy } from '@/lib/compute'
 import { formatDayFr, formatSol, shortAddress } from '@/lib/format'
-import { parseSaisie } from '@/lib/saisie'
+import { ecartEnJours } from '@/lib/jours'
 import { cn } from '../ui/cn'
 import { CheckIcon, ChevronRightIcon } from '../ui/icons'
 import {
@@ -23,34 +23,50 @@ import {
   lireBrouillon,
 } from './brouillons'
 
-/** Une journée à relever, aplatie depuis la file du serveur. */
+/** Où en est une journée de la fenêtre d'observation. */
+export type EtatJournee = 'actif' | 'inactif' | 'ouvert' | 'manquante'
+
+export type JourneeMatin = {
+  /** AAAA-MM-JJ */
+  day: string
+  etat: EtatJournee
+}
+
+/** Un wallet en test, avec toute sa fenêtre d'observation. */
 export type EntreeMatin = {
   walletId: string
   label: string
   address: string
   strategy: Strategy
-  /** AAAA-MM-JJ */
-  day: string
+  /** Du premier jour du test à aujourd'hui, relevé ou non. */
+  journees: readonly JourneeMatin[]
+  /** Ce qu'il reste à relever, jour en cours exclu, du plus ancien au plus récent. */
+  aRelever: readonly string[]
+  /** Le wallet a son plancher de journées : il attend un verdict, pas un relevé. */
+  plancherAtteint: boolean
 }
 
-type EtatEntree =
-  | { kind: 'a-faire' }
-  | {
-      kind: 'enregistre'
-      tokens: number
-      ecartes: number
-      pnlSol: number
-      inactif: boolean
-    }
-  | { kind: 'erreur'; message: string }
+/** Ce qu'une journée validée depuis cet écran a laissé derrière elle. */
+type Releve = {
+  tokens: number
+  ecartes: number
+  pnlSol: number
+  inactif: boolean
+}
 
 /**
  * Le relevé du matin.
  *
- * Une seule journée est ouverte à la fois : relever dix journées dépliées
- * côte à côte, c'est un écran qu'on parcourt au lieu d'une file qu'on
- * traite. Les autres tiennent sur une ligne, et la suivante s'ouvre d'elle-même
- * une fois la précédente validée.
+ * Un wallet, une carte. La carte porte sa fenêtre de test en bande de
+ * journées : on y lit d'un coup d'œil ce qui est relevé, ce qui manque et où
+ * en est le wallet, et on clique la journée qu'on veut saisir. C'est ce qui
+ * remplace l'ancienne liste à plat, où une journée oubliée de la semaine
+ * dernière avait exactement le même poids que celle d'hier.
+ *
+ * Une seule carte est ouverte à la fois : relever dix journées dépliées côte
+ * à côte, c'est un écran qu'on parcourt au lieu d'une file qu'on traite. La
+ * journée suivante s'ouvre d'elle-même une fois la précédente validée, et
+ * quand un wallet n'a plus rien le wallet suivant prend la main.
  *
  * Une journée se relève en deux temps : on jette la journée entière dans le
  * champ du haut — c'est ce qui va vite —, puis on décoche dans le tableau les
@@ -58,9 +74,12 @@ type EtatEntree =
  */
 export function FileDuMatin({
   entrees,
+  aujourdhui,
   ouvrir,
 }: {
   entrees: readonly EntreeMatin[]
+  /** La date du jour, décidée côté serveur : la bande s'arrête là. */
+  aujourdhui: string
   /**
    * Wallet sur lequel ouvrir la file.
    *
@@ -69,19 +88,26 @@ export function FileDuMatin({
    */
   ouvrir?: string
 }) {
-  const [etats, setEtats] = useState<Record<string, EtatEntree>>({})
+  const [releves, setReleves] = useState<Record<string, Releve>>({})
+  const [erreurs, setErreurs] = useState<Record<string, string>>({})
   const [brouillons, setBrouillons] = useState<Record<string, number>>({})
-  // Rien à ouvrir côté serveur : la première journée fait l'affaire, et le
-  // rendu reste identique des deux côtés.
+  /** La journée sélectionnée dans la bande, quand on en a choisi une. */
+  const [choisi, setChoisi] = useState<Record<string, string>>({})
   const [ouvert, setOuvert] = useState<string | null>(() => {
     const demande = entrees.find((entree) => entree.walletId === ouvrir)
-    return demande ? cle(demande) : entrees.length > 0 ? cle(entrees[0]!) : null
+    return demande?.walletId ?? entrees[0]?.walletId ?? null
   })
-  // Le focus ne part sur le champ qu'après une validation : à l'arrivée sur
-  // la page, ouvrir le clavier d'autorité serait pénible sur mobile.
-  const [focusAuto, setFocusAuto] = useState(false)
-
-  const cles = useMemo(() => entrees.map(cle), [entrees])
+  // Les journées saisissables, et elles seules : un brouillon n'a de sens que
+  // là où un champ de saisie peut s'ouvrir.
+  const cles = useMemo(
+    () =>
+      entrees.flatMap((entree) =>
+        entree.journees
+          .filter((journee) => aSaisir(journee.etat))
+          .map((journee) => cleBrouillon(entree.walletId, journee.day)),
+      ),
+    [entrees],
+  )
 
   // Les brouillons vivent sur l'appareil : on ne peut les lire qu'une fois
   // l'écran monté, sinon le rendu serveur et le rendu client divergeraient.
@@ -89,43 +115,72 @@ export function FileDuMatin({
     setBrouillons(compterBrouillons(cles))
   }, [cles])
 
-  const faites = entrees.filter(
-    (entree) => etats[cle(entree)]?.kind === 'enregistre',
-  ).length
-  const restantes = entrees.length - faites
+  /** Les journées qu'il reste à relever sur ce wallet, ici et maintenant. */
+  function restantes(entree: EntreeMatin): string[] {
+    return entree.aRelever.filter(
+      (day) => releves[cleBrouillon(entree.walletId, day)] === undefined,
+    )
+  }
+
+  /** La journée affichée par la carte : celle qu'on a choisie, sinon la plus ancienne qui manque. */
+  function jourChoisi(entree: EntreeMatin): string {
+    return choisi[entree.walletId] ?? restantes(entree)[0] ?? aujourdhui
+  }
+
+  /** L'état d'une journée, corrigé de ce qui vient d'être validé à l'écran. */
+  function etatAffiche(entree: EntreeMatin, journee: JourneeMatin): EtatJournee {
+    const releve = releves[cleBrouillon(entree.walletId, journee.day)]
+    if (releve === undefined) return journee.etat
+    return releve.inactif ? 'inactif' : 'actif'
+  }
+
+  const total = entrees.reduce((somme, entree) => somme + entree.aRelever.length, 0)
+  const faites = total - entrees.reduce((somme, e) => somme + restantes(e).length, 0)
+  const reste = total - faites
 
   function enregistrer(
     entree: EntreeMatin,
+    day: string,
     lignes: readonly LigneJour[],
     inactif: boolean,
   ) {
-    const id = cle(entree)
+    const id = cleBrouillon(entree.walletId, day)
     const retenues = inactif ? [] : lignes
     const report = computeWalletReport(retenues.map(toTokenInput), entree.strategy)
 
     // Optimiste : la file doit rester fluide même si l'écriture traîne.
-    setEtats((courant) => ({
+    setReleves((courant) => ({
       ...courant,
       [id]: {
-        kind: 'enregistre',
         tokens: retenues.length,
         ecartes: retenues.filter((ligne) => !ligne.pris).length,
         pnlSol: report.netSol,
         inactif: inactif || retenues.length === 0,
       },
     }))
+    setErreurs((courant) => {
+      const suite = { ...courant }
+      delete suite[id]
+      return suite
+    })
 
-    // On enchaîne sur la première journée encore à faire, sans attendre le
-    // serveur : c'est ce qui fait de la file une file.
-    const suivante = cles.find(
-      (autre) => autre !== id && etats[autre]?.kind !== 'enregistre',
-    )
-    setOuvert(suivante ?? null)
-    setFocusAuto(true)
+    // On enchaîne sans attendre le serveur : c'est ce qui fait de la file une
+    // file. D'abord la journée suivante du même wallet — on vide sa bande
+    // avant de passer à un autre contexte —, puis le wallet suivant.
+    const suivante = restantes(entree).find((autre) => autre !== day)
+    if (suivante !== undefined) {
+      setChoisi((courant) => ({ ...courant, [entree.walletId]: suivante }))
+    } else {
+      const suivant = entrees.find(
+        (autre) =>
+          autre.walletId !== entree.walletId && restantes(autre).length > 0,
+      )
+      setOuvert(suivant?.walletId ?? null)
+    }
 
     void saveDayAction({
       walletId: entree.walletId,
-      day: entree.day,
+      day,
       state: inactif ? 'inactif' : 'actif',
       tokens: retenues.map((ligne) => ({
         name: ligne.name,
@@ -136,13 +191,16 @@ export function FileDuMatin({
       })),
     }).then((resultat) => {
       if (!resultat.ok) {
-        // Le brouillon n'a pas été touché : rouvrir la carte suffit à
+        // Le brouillon n'a pas été touché : rouvrir la journée suffit à
         // retrouver la saisie telle quelle.
-        setEtats((courant) => ({
-          ...courant,
-          [id]: { kind: 'erreur', message: resultat.message },
-        }))
-        setOuvert(id)
+        setReleves((courant) => {
+          const suite = { ...courant }
+          delete suite[id]
+          return suite
+        })
+        setErreurs((courant) => ({ ...courant, [id]: resultat.message }))
+        setOuvert(entree.walletId)
+        setChoisi((courant) => ({ ...courant, [entree.walletId]: day }))
         return
       }
 
@@ -161,7 +219,7 @@ export function FileDuMatin({
     return (
       <Vide
         titre="Rien à relever"
-        detail="Aucune journée en attente. Les wallets en test réapparaîtront ici demain matin."
+        detail="Aucune journée en retard. Celle d’aujourd’hui s’ouvrira ici demain matin — pour la noter au fil de l’eau, passez par la page du wallet."
       />
     )
   }
@@ -171,69 +229,95 @@ export function FileDuMatin({
     // écran : au-delà, le champ Nom fait mille pixels et l'œil traverse la
     // ligne pour atteindre la case « Pris ».
     <div className="max-w-[1000px]">
-      {/* Avancement : avec les journées repliées, il reste visible sans
-          avoir à remonter. */}
+      {/* Avancement : avec les cartes repliées, il reste visible sans avoir
+          à remonter. */}
       <div className="mb-3">
         <div className="flex items-baseline justify-between text-[13px]">
           <span className="text-ink-2">
-            {restantes === 0
+            {reste === 0
               ? 'Tout est relevé.'
-              : `${restantes} ${restantes > 1 ? 'journées' : 'journée'} à relever`}
+              : `${reste} ${reste > 1 ? 'journées' : 'journée'} à relever`}
           </span>
           <span className="text-ink-3 tabular-nums">
-            {faites}/{entrees.length}
+            {faites}/{total} faites
           </span>
         </div>
         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-fill">
           <div
             className={cn(
               'h-full rounded-full transition-[width] duration-300',
-              restantes === 0 ? 'bg-green' : 'bg-ink-3',
+              reste === 0 ? 'bg-green' : 'bg-ink-3',
             )}
-            style={{ width: `${(faites / entrees.length) * 100}%` }}
+            style={{ width: `${(faites / Math.max(total, 1)) * 100}%` }}
           />
         </div>
       </div>
 
       <div className="space-y-2">
         {entrees.map((entree) => {
-          const id = cle(entree)
-          const etat = etats[id] ?? { kind: 'a-faire' as const }
+          const journees = entree.journees.map((journee) => ({
+            day: journee.day,
+            etat: etatAffiche(entree, journee),
+          }))
+          const aFaire = restantes(entree)
+          const day = jourChoisi(entree)
+          const id = cleBrouillon(entree.walletId, day)
 
-          if (etat.kind === 'enregistre') {
-            return <CarteFaite key={id} entree={entree} etat={etat} />
+          if (aFaire.length === 0) {
+            return (
+              <CarteFaite
+                key={entree.walletId}
+                entree={entree}
+                journees={journees}
+                releves={releves}
+              />
+            )
           }
 
-          if (ouvert !== id) {
+          if (ouvert !== entree.walletId) {
             return (
               <CarteRepliee
-                key={id}
+                key={entree.walletId}
                 entree={entree}
-                lignes={brouillons[id] ?? 0}
-                erreur={etat.kind === 'erreur' ? etat.message : null}
-                onOuvrir={() => {
-                  setOuvert(id)
-                  setFocusAuto(false)
-                }}
+                journees={journees}
+                reste={aFaire.length}
+                brouillons={brouillons}
+                erreur={erreurs[id] ?? null}
+                onOuvrir={() => setOuvert(entree.walletId)}
               />
             )
           }
 
           return (
-            <CarteJournee
-              key={id}
+            <CarteWallet
+              key={entree.walletId}
               entree={entree}
-              erreur={etat.kind === 'erreur' ? etat.message : null}
-              autoFocus={focusAuto}
-              onBrouillon={(nb) =>
-                setBrouillons((courant) =>
-                  courant[id] === nb ? courant : { ...courant, [id]: nb },
-                )
-              }
+              journees={journees}
+              aujourdhui={aujourdhui}
+              reste={aFaire.length}
+              day={day}
               onReplier={() => setOuvert(null)}
-              onValider={(lignes) => enregistrer(entree, lignes, false)}
-              onInactif={() => enregistrer(entree, [], true)}
-            />
+              onChoisir={(autre) =>
+                setChoisi((courant) => ({ ...courant, [entree.walletId]: autre }))
+              }
+            >
+              <CarteJournee
+                // La clé force un montage propre d'une journée à l'autre :
+                // sans elle, le tableau de la précédente resterait à l'écran.
+                key={id}
+                entree={entree}
+                day={day}
+                aujourdhui={aujourdhui}
+                erreur={erreurs[id] ?? null}
+                onBrouillon={(nb) =>
+                  setBrouillons((courant) =>
+                    courant[id] === nb ? courant : { ...courant, [id]: nb },
+                  )
+                }
+                onValider={(lignes) => enregistrer(entree, day, lignes, false)}
+                onInactif={() => enregistrer(entree, day, [], true)}
+              />
+            </CarteWallet>
           )
         })}
       </div>
@@ -241,8 +325,17 @@ export function FileDuMatin({
   )
 }
 
-function cle(entree: EntreeMatin): string {
-  return cleBrouillon(entree.walletId, entree.day)
+/** Une journée ouverte mais jamais remplie reste à saisir, comme une absente. */
+function aSaisir(etat: EtatJournee): boolean {
+  return etat === 'manquante' || etat === 'ouvert'
+}
+
+/** « hier », « il y a 4 jours » : de quand date la journée qu'on saisit. */
+function retard(day: string, aujourdhui: string): string {
+  const jours = ecartEnJours(day, aujourdhui)
+  if (jours <= 0) return 'aujourd’hui'
+  if (jours === 1) return 'hier'
+  return `il y a ${jours} jours`
 }
 
 /** Une ligne de saisie, réduite à ce dont le calcul a besoin. */
@@ -255,7 +348,163 @@ function toTokenInput(ligne: LigneJour) {
   }
 }
 
-/** L'en-tête commun à toutes les cartes : qui, quel jour. */
+// ---------------------------------------------------------------------------
+// La bande de journées
+// ---------------------------------------------------------------------------
+
+/**
+ * La fenêtre de test d'un wallet, une pastille par jour.
+ *
+ * C'est à la fois le résumé et le sélecteur : on y voit ce qui manque et on
+ * clique dessus pour le saisir. Une journée déjà relevée n'est pas cliquable
+ * — la réécrire d'ici effacerait ses tokens, et les corrections à l'unité se
+ * font depuis le tableau du wallet.
+ *
+ * Bornée à la fenêtre du test, elle tient sur une ligne au départ (quatre
+ * journées) et reste lisible après trois semaines. Un calendrier mensuel
+ * afficherait vingt-six cases mortes pour quatre utiles.
+ */
+function BandeJours({
+  journees,
+  aujourdhui,
+  choisi,
+  onChoisir,
+}: {
+  journees: readonly JourneeMatin[]
+  aujourdhui: string
+  /** La journée en cours de saisie, mise en avant. `null` sur une carte repliée. */
+  choisi: string | null
+  onChoisir?: (day: string) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-start gap-1">
+      {journees.map((journee) => {
+        const saisissable = aSaisir(journee.etat)
+        const actif = journee.day === choisi
+        const libelle = `${formatDayFr(journee.day)} · ${LEGENDE[journee.etat]}`
+
+        // Quatre états, quatre formes — et non quatre gris voisins : sur une
+        // carte blanche, `bg-fill-2` et `bg-fill-2/50` étaient deux fois rien.
+        // Le remplissage dit ce qu'il y a dedans, le trait dit si c'est fait,
+        // et les pointillés — eux seuls — se cliquent.
+        const classes = cn(
+          'flex h-[30px] w-[32px] items-center justify-center rounded-[8px] text-[12px] tabular-nums transition',
+          actif
+            ? 'bg-ink font-medium text-bg'
+            : journee.etat === 'actif'
+              ? 'bg-hi font-medium text-ink'
+              : journee.etat === 'inactif'
+                ? 'border border-separator text-ink-3'
+                : 'border border-dashed border-ink-3 text-ink-2',
+          saisissable && !actif && onChoisir
+            ? 'cursor-pointer hover:border-ink-2 hover:text-ink active:bg-fill'
+            : null,
+        )
+
+        return (
+          <span key={journee.day} className="flex flex-col items-center gap-0.5">
+            {saisissable && onChoisir ? (
+              <button
+                type="button"
+                onClick={() => onChoisir(journee.day)}
+                title={libelle}
+                aria-label={libelle}
+                aria-pressed={actif}
+                className={classes}
+              >
+                {journee.day.slice(8)}
+              </button>
+            ) : (
+              <span title={libelle} aria-label={libelle} className={classes}>
+                {journee.day.slice(8)}
+              </span>
+            )}
+            <span className="text-[10px] leading-none text-ink-3">
+              {journee.day === aujourdhui
+                ? 'auj.'
+                : journee.day.slice(8) === '01'
+                  ? MOIS[Number(journee.day.slice(5, 7)) - 1]
+                  : ' '}
+            </span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * Ce que disent les pastilles.
+ *
+ * Le sens ne vivait que dans l'attribut `title` : au doigt, il n'existe pas.
+ * Trois repères sous la bande coûtent une ligne et rendent l'écran lisible
+ * sans survol.
+ */
+function LegendeBande() {
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-3">
+      <span className="flex items-center gap-1.5">
+        <span aria-hidden className="h-[12px] w-[13px] rounded-[4px] bg-hi" />
+        relevée
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="h-[12px] w-[13px] rounded-[4px] border border-separator"
+        />
+        sans trade
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="h-[12px] w-[13px] rounded-[4px] border border-dashed border-ink-3"
+        />
+        à relever — cliquez la journée pour la saisir
+      </span>
+    </p>
+  )
+}
+
+const LEGENDE: Record<EtatJournee, string> = {
+  actif: 'relevée, avec trades',
+  inactif: 'relevée, sans trade',
+  ouvert: 'ouverte, à relever',
+  manquante: 'à relever',
+}
+
+const MOIS = [
+  'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin',
+  'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.',
+]
+
+/** La bande en miniature, pour une carte repliée : les points suffisent. */
+function BandeMinuscule({ journees }: { journees: readonly JourneeMatin[] }) {
+  return (
+    <span className="flex shrink-0 items-center gap-[3px]" aria-hidden="true">
+      {journees.map((journee) => (
+        <span
+          key={journee.day}
+          // Les pointillés de la grande bande ne survivent pas à six pixels :
+          // ici c'est le creux qui dit « à relever ».
+          className={cn(
+            'h-[6px] w-[6px] rounded-full',
+            journee.etat === 'actif'
+              ? 'bg-ink-2'
+              : journee.etat === 'inactif'
+                ? 'bg-ink-3/40'
+                : 'border border-ink-3',
+          )}
+        />
+      ))}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Les cartes
+// ---------------------------------------------------------------------------
+
+/** L'en-tête commun à toutes les cartes : qui, et où il en est. */
 function Entete({
   entree,
   children,
@@ -275,62 +524,30 @@ function Entete({
       <span className="hidden shrink-0 font-mono text-[12px] text-ink-3 sm:inline">
         {shortAddress(entree.address)}
       </span>
-      <span className="ml-auto shrink-0 text-[13px] text-ink-2">
-        {formatDayFr(entree.day)}
-      </span>
       {children}
     </>
   )
 }
 
-function CarteFaite({
-  entree,
-  etat,
-}: {
-  entree: EntreeMatin
-  etat: Extract<EtatEntree, { kind: 'enregistre' }>
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-card bg-card px-4 py-2.5">
-      <CheckIcon className="h-[15px] w-[15px] shrink-0 text-green" />
-      <span className="min-w-0 flex-1 truncate text-[15px] text-ink-2">
-        {entree.label} · {formatDayFr(entree.day)}
-      </span>
-      <span className="shrink-0 text-[13px] text-ink-2 tabular-nums">
-        {etat.inactif ? (
-          'inactif'
-        ) : (
-          <>
-            {etat.tokens} tokens
-            {etat.ecartes > 0 ? (
-              <span className="text-ink-3"> · {etat.ecartes} écartés</span>
-            ) : null}{' '}
-            ·{' '}
-            <span
-              className={cn(
-                etat.pnlSol > 0 ? 'text-green' : etat.pnlSol < 0 ? 'text-red' : '',
-              )}
-            >
-              {formatSol(etat.pnlSol)}
-            </span>
-          </>
-        )}
-      </span>
-    </div>
-  )
-}
-
 function CarteRepliee({
   entree,
-  lignes,
+  journees,
+  reste,
+  brouillons,
   erreur,
   onOuvrir,
 }: {
   entree: EntreeMatin
-  lignes: number
+  journees: readonly JourneeMatin[]
+  reste: number
+  brouillons: Record<string, number>
   erreur: string | null
   onOuvrir: () => void
 }) {
+  const enBrouillon = entree.aRelever.filter(
+    (day) => (brouillons[cleBrouillon(entree.walletId, day)] ?? 0) > 0,
+  ).length
+
   return (
     <button
       type="button"
@@ -339,9 +556,10 @@ function CarteRepliee({
     >
       <ChevronRightIcon className="h-[15px] w-[15px] shrink-0 text-ink-3" />
       <Entete entree={entree}>
-        {lignes > 0 ? (
+        <BandeMinuscule journees={journees} />
+        {enBrouillon > 0 ? (
           <span className="shrink-0 rounded bg-fill px-1.5 py-0.5 text-[11px] text-ink-2">
-            brouillon · {lignes}
+            brouillon · {enBrouillon}
           </span>
         ) : null}
         {erreur !== null ? (
@@ -349,32 +567,152 @@ function CarteRepliee({
             échec
           </span>
         ) : null}
+        <Compteur entree={entree} reste={reste} />
       </Entete>
     </button>
   )
 }
 
+/** Un wallet dont il ne reste rien à relever ce matin. */
+function CarteFaite({
+  entree,
+  journees,
+  releves,
+}: {
+  entree: EntreeMatin
+  journees: readonly JourneeMatin[]
+  releves: Record<string, Releve>
+}) {
+  const faits = entree.aRelever
+    .map((day) => releves[cleBrouillon(entree.walletId, day)])
+    .filter((releve): releve is Releve => releve !== undefined)
+
+  const tokens = faits.reduce((somme, releve) => somme + releve.tokens, 0)
+  const ecartes = faits.reduce((somme, releve) => somme + releve.ecartes, 0)
+  const pnlSol = faits.reduce((somme, releve) => somme + releve.pnlSol, 0)
+
+  return (
+    <div className="flex items-center gap-3 rounded-card bg-card px-4 py-2.5">
+      <CheckIcon className="h-[15px] w-[15px] shrink-0 text-green" />
+      <span className="min-w-0 truncate text-[15px] text-ink-2">{entree.label}</span>
+      <BandeMinuscule journees={journees} />
+      <span className="ml-auto shrink-0 text-[13px] text-ink-2 tabular-nums">
+        {tokens === 0 ? (
+          `${faits.length} ${faits.length > 1 ? 'journées' : 'journée'} · inactif`
+        ) : (
+          <>
+            {tokens} tokens
+            {ecartes > 0 ? (
+              <span className="text-ink-3"> · {ecartes} écartés</span>
+            ) : null}{' '}
+            ·{' '}
+            <span
+              className={cn(pnlSol > 0 ? 'text-green' : pnlSol < 0 ? 'text-red' : '')}
+            >
+              {formatSol(pnlSol)}
+            </span>
+          </>
+        )}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Le décompte de droite : ce qui reste, et pourquoi le wallet est encore là.
+ *
+ * Un wallet au plancher qui garde des journées à relever est un wallet à
+ * trous : il attend un verdict, mais ce verdict se prononcerait sur un
+ * décompte faux. Le dire ici évite de le conclure en l'état.
+ */
+function Compteur({ entree, reste }: { entree: EntreeMatin; reste: number }) {
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-2 text-[13px]">
+      {entree.plancherAtteint ? (
+        <span className="rounded bg-fill px-1.5 py-0.5 text-[11px] text-orange">
+          verdict en attente
+        </span>
+      ) : null}
+      <span className="text-ink-2 tabular-nums">{reste} à relever</span>
+    </span>
+  )
+}
+
+/** La carte dépliée : la bande, puis la journée choisie. */
+function CarteWallet({
+  entree,
+  journees,
+  aujourdhui,
+  reste,
+  day,
+  onReplier,
+  onChoisir,
+  children,
+}: {
+  entree: EntreeMatin
+  journees: readonly JourneeMatin[]
+  aujourdhui: string
+  reste: number
+  day: string
+  onReplier: () => void
+  onChoisir: (day: string) => void
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-card bg-card">
+      <button
+        type="button"
+        onClick={onReplier}
+        className="flex w-full items-center gap-2 rounded-t-card px-4 py-3 text-left transition hover:bg-fill-2/50"
+      >
+        <ChevronRightIcon className="h-[15px] w-[15px] shrink-0 rotate-90 text-ink-3" />
+        <Entete entree={entree}>
+          <Compteur entree={entree} reste={reste} />
+        </Entete>
+      </button>
+
+      <div className="border-b border-separator px-4 pb-3">
+        <BandeJours
+          journees={journees}
+          aujourdhui={aujourdhui}
+          choisi={day}
+          onChoisir={onChoisir}
+        />
+        <LegendeBande />
+        {entree.plancherAtteint ? (
+          <p className="mt-2 text-[11.5px] leading-relaxed text-orange">
+            Ce wallet a assez de journées observées pour être conclu, mais il
+            en manque {reste} : le verdict se prononcerait sur un décompte
+            faux.
+          </p>
+        ) : null}
+      </div>
+
+      {children}
+    </section>
+  )
+}
+
 function CarteJournee({
   entree,
+  day,
+  aujourdhui,
   erreur,
-  autoFocus,
   onBrouillon,
-  onReplier,
   onValider,
   onInactif,
 }: {
   entree: EntreeMatin
+  day: string
+  /** La date du jour, pour dire de quel retard cette journée parle. */
+  aujourdhui: string
   erreur: string | null
-  autoFocus: boolean
   onBrouillon: (lignes: number) => void
-  onReplier: () => void
   onValider: (lignes: readonly LigneJour[]) => void
   onInactif: () => void
 }) {
-  const id = cleBrouillon(entree.walletId, entree.day)
-  const [saisie, setSaisie] = useState('')
+  const id = cleBrouillon(entree.walletId, day)
   const [lignes, setLignes] = useState<LigneJour[]>([])
-  const champ = useRef<HTMLTextAreaElement | null>(null)
   // Le parent recrée son rappel à chaque rendu : on le garde dans une
   // référence pour que l'effet d'écriture ne dépende que de la saisie.
   const signaler = useRef(onBrouillon)
@@ -389,7 +727,6 @@ function CarteJournee({
   useEffect(() => {
     const brouillon = lireBrouillon(id)
     if (brouillon !== null) {
-      setSaisie(brouillon.saisie)
       setLignes(brouillon.lignes)
       // Les clés du brouillon sont déjà prises : on repart au-dessus.
       compteur.current = brouillon.lignes.length
@@ -401,17 +738,9 @@ function CarteJournee({
   // partir voir un wallet et de revenir sans rien perdre.
   useEffect(() => {
     if (!relu.current) return
-    ecrireBrouillon(id, { saisie, lignes })
+    ecrireBrouillon(id, { lignes })
     signaler.current(lignes.length)
-  }, [id, saisie, lignes])
-
-  useEffect(() => {
-    if (autoFocus) champ.current?.focus()
-  }, [autoFocus])
-
-  // L'aperçu se recalcule à la frappe : on voit ce que l'app a compris avant
-  // d'ajouter au tableau. C'est ce qui permet d'aller vite sans se tromper.
-  const lu = useMemo(() => parseSaisie(saisie), [saisie])
+  }, [id, lignes])
 
   const report = useMemo(
     () => computeWalletReport(lignes.map(toTokenInput), entree.strategy),
@@ -421,24 +750,6 @@ function CarteJournee({
   function nouvelleCle(): string {
     compteur.current += 1
     return `l${compteur.current}`
-  }
-
-  /** Verse la saisie libre dans le tableau, puis vide le champ. */
-  function verser() {
-    if (lu.tokens.length === 0) return
-    setLignes((courantes) => [
-      ...courantes,
-      ...lu.tokens.map((token) => ({
-        cle: nouvelleCle(),
-        name: token.name,
-        gain: token.gain,
-        perteRug: token.perteRug,
-        delay: token.delay,
-        pris: token.pris,
-      })),
-    ])
-    setSaisie('')
-    champ.current?.focus()
   }
 
   function majLigne(cleLigne: string, patch: PatchLigne) {
@@ -470,80 +781,34 @@ function CarteJournee({
   const vide = lignes.length === 0
 
   /**
-   * ⌘↵ fait la seule chose sensée à l'endroit où on se trouve : verser la
-   * saisie rapide si le champ en contient, valider la journée sinon. Posé
-   * sur la carte entière, le raccourci marche depuis n'importe quelle
-   * cellule du tableau — c'est là qu'on est quand on finit de saisir.
+   * ⌘↵ valide la journée. Posé sur la carte entière, le raccourci marche
+   * depuis n'importe quelle cellule du tableau — c'est là qu'on est quand on
+   * finit de saisir.
    */
   function auClavier(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
+    if (vide) return
     event.preventDefault()
-    if (lu.tokens.length > 0) verser()
-    else if (!vide) onValider(lignes)
+    onValider(lignes)
   }
 
   return (
     // Pas d'`overflow-hidden` ici : il empêcherait la barre d'action de
     // coller au bas de l'écran. Les coins sont arrondis bloc par bloc.
-    <section className="rounded-card bg-card" onKeyDown={auClavier}>
-      <button
-        type="button"
-        onClick={onReplier}
-        className="flex w-full items-center gap-2 rounded-t-card border-b border-separator px-4 py-3 text-left transition hover:bg-fill-2/50"
-      >
-        <ChevronRightIcon className="h-[15px] w-[15px] shrink-0 rotate-90 text-ink-3" />
-        <Entete entree={entree} />
-      </button>
-
-      <div className="border-b border-separator px-4 py-3">
-        <textarea
-          ref={champ}
-          value={saisie}
-          onChange={(event) => setSaisie(event.target.value)}
-          rows={2}
-          inputMode="text"
-          spellCheck={false}
-          autoCapitalize="characters"
-          placeholder="120  x3  -80  BONK 45 5m"
-          aria-label={`Tokens de ${entree.label} le ${formatDayFr(entree.day)}`}
-          className="w-full resize-y rounded-[10px] bg-card-2 px-3 py-2.5 font-mono text-[15px] text-ink placeholder:font-sans placeholder:text-ink-3 focus:bg-fill focus:outline-none"
-        />
-
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
-          {lu.tokens.length === 0 ? (
-            <p className="text-ink-3">
-              Collez la journée entière : « −80 » pour un dump de 80 %, « x3 »
-              pour un ×3, « ? » pour un token pas encore noté.
-            </p>
-          ) : (
-            <button
-              type="button"
-              onClick={verser}
-              className="font-medium text-ink transition hover:opacity-70 active:opacity-50"
-            >
-              Ajouter {lu.tokens.length}{' '}
-              {lu.tokens.length > 1 ? 'tokens' : 'token'} au tableau
-              <span className="ml-1.5 text-ink-3">⌘↵</span>
-            </button>
-          )}
-
-          {lu.ignores.length > 0 ? (
-            <span className="w-full text-orange">
-              Non compris : {lu.ignores.join(' ')}
-            </span>
-          ) : null}
-          {lu.tronque ? (
-            <span className="w-full text-orange">
-              Saisie trop longue : le surplus a été coupé.
-            </span>
-          ) : null}
-        </div>
+    <div onKeyDown={auClavier}>
+      {/* La date seule ne dit pas si on rattrape hier ou la semaine dernière —
+          et c'est toute la différence quand on revient après une absence. */}
+      <div className="border-b border-separator px-4 py-2.5">
+        <p className="flex items-baseline gap-2 text-[13px]">
+          <span className="font-medium text-ink">{formatDayFr(day)}</span>
+          <span className="text-ink-3">{retard(day, aujourdhui)}</span>
+        </p>
       </div>
 
       {vide ? (
         <p className="border-b border-separator px-4 py-6 text-center text-[13px] text-ink-3">
-          Aucun token pour l’instant. Collez la journée ci-dessus, ou ajoutez
-          les lignes une par une.
+          Aucun token pour l’instant. Ajoutez les lignes une par une, ou
+          marquez la journée sans trade.
         </p>
       ) : null}
 
@@ -595,10 +860,10 @@ function CarteJournee({
           onClick={onInactif}
           className="flex-1 rounded-br-card border-l border-separator px-4 py-3 text-[17px] text-ink-2 transition hover:bg-fill-2 active:bg-fill"
         >
-          Inactif
+          Journée sans trade
         </button>
       </div>
-    </section>
+    </div>
   )
 }
 

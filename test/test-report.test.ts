@@ -35,6 +35,11 @@ function inactif(day: string): DayInput {
   return { day, state: 'inactif', tokens: [] }
 }
 
+/** Journée ouverte pour être saisie au fil de l'eau, encore vide. */
+function ouverte(day: string): DayInput {
+  return { day, state: 'ouvert', tokens: [] }
+}
+
 describe('computeTestReport — journées', () => {
   it('calcule le résultat de chaque journée', () => {
     const rapport = computeTestReport(
@@ -75,6 +80,40 @@ describe('computeTestReport — journées', () => {
     expect(rapport.joursActifs).toBe(1)
     expect(rapport.joursInactifs).toBe(1)
     expect(rapport.tauxInactivite).toBe(50)
+  })
+
+  it('laisse la journée seulement ouverte hors du décompte', () => {
+    // « Je n'ai pas encore regardé » n'est pas une observation : la compter
+    // ferait avancer le plancher et monterait le taux d'inactivité sur la
+    // foi d'un clic.
+    const rapport = computeTestReport(
+      [jour('2026-10-01', [150]), inactif('2026-10-02'), ouverte('2026-10-03')],
+      S,
+    )
+    expect(rapport.joursObserves).toBe(2)
+    expect(rapport.joursInactifs).toBe(1)
+    expect(rapport.tauxInactivite).toBe(50)
+    // La journée reste affichable : c'est elle qu'on clique pour la relever.
+    expect(rapport.days.map((j) => j.day)).toEqual([
+      '2026-10-01',
+      '2026-10-02',
+      '2026-10-03',
+    ])
+  })
+
+  it('ne débloque pas le verdict sur des journées seulement ouvertes', () => {
+    const rapport = computeTestReport(
+      [
+        jour('2026-10-01', [150]),
+        jour('2026-10-02', [150]),
+        jour('2026-10-03', [150]),
+        ouverte('2026-10-04'),
+      ],
+      S,
+    )
+    expect(rapport.joursObserves).toBe(3)
+    expect(rapport.joursRestants).toBe(JOURS_MINIMUM_TEST - 3)
+    expect(rapport.verdictDisponible).toBe(false)
   })
 })
 

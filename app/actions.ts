@@ -363,6 +363,11 @@ export async function saveDayAction(input: {
  *
  * Elle n'est jamais réécrite si elle existe déjà : `saveDay` remplace le
  * contenu d'une journée, l'appeler sur une journée saisie effacerait tout.
+ *
+ * Elle naît `ouvert`, et surtout pas `inactif` : tant que personne n'a dit
+ * « il n'a rien lancé », la journée n'est pas une observation. La créer
+ * inactive ferait avancer le plancher du test et monter le taux d'inactivité
+ * sur la foi d'un simple clic.
  */
 export async function openDayAction(
   walletId: string,
@@ -385,9 +390,9 @@ export async function openDayAction(
   const existante = await daysRepo.getDay(walletId, day)
   if (existante) return { ok: true, day: existante, tokensCrees: 0 }
 
-  // Sans trade relevé, la journée est « sans trade » : c'est vrai tant qu'on
-  // n'y a rien mis, et le premier token la rendra active.
-  const creee = await daysRepo.saveDay({ walletId, day, state: 'inactif', tokens: [] })
+  // Le premier token la rendra active ; cocher « journée sans trade » la
+  // rendra inactive. D'ici là elle est seulement ouverte.
+  const creee = await daysRepo.saveDay({ walletId, day, state: 'ouvert', tokens: [] })
   refresh()
   return { ok: true, day: creee, tokensCrees: 0 }
 }

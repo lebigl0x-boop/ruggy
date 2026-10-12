@@ -19,26 +19,30 @@ export default async function MatinPage({
   const { wallet } = await searchParams
   const aujourdhui = todayIso()
 
-  // Une journée par ligne, du plus ancien au plus récent : les matins sautés
-  // remontent en tête au lieu de se perdre.
-  const entrees: EntreeMatin[] = (await listFileDuMatin(aujourdhui))
-    .flatMap((entree) =>
-      entree.jours.map((day) => ({
-        walletId: entree.wallet.id,
-        label: entree.wallet.label,
-        address: entree.wallet.address,
-        strategy: entree.wallet.strategy,
-        day,
-      })),
-    )
-    .sort((a, b) => a.day.localeCompare(b.day) || a.label.localeCompare(b.label))
+  // Un wallet par carte, dans l'ordre d'ouverture de leur test. L'ordre ne
+  // dépend pas de ce qu'il reste à faire : une carte qui remonterait d'elle-même
+  // pendant qu'on saisit déplacerait la suivante sous le curseur.
+  const file = await listFileDuMatin(aujourdhui)
+  const entrees: EntreeMatin[] = file.map((entree) => ({
+    walletId: entree.wallet.id,
+    label: entree.wallet.label,
+    address: entree.wallet.address,
+    strategy: entree.wallet.strategy,
+    journees: entree.journees,
+    aRelever: entree.aRelever,
+    plancherAtteint: entree.plancherAtteint,
+  }))
 
   return (
     <Page
       titre="Ce matin"
-      sousTitre={`${formatDateFr(aujourdhui)} · journées à relever`}
+      // Pas de décompte ici : il vit dans la file, qui est la seule à savoir
+      // ce qui vient d'être validé. Affiché aux deux endroits, il resterait
+      // figé le temps qu'une validation remonte du serveur — deux chiffres
+      // pour la même chose, qui se contredisent à l'écran.
+      sousTitre={`${formatDateFr(aujourdhui)} · les journées terminées, à relever`}
     >
-      <FileDuMatin entrees={entrees} ouvrir={wallet} />
+      <FileDuMatin entrees={entrees} aujourdhui={aujourdhui} ouvrir={wallet} />
     </Page>
   )
 }

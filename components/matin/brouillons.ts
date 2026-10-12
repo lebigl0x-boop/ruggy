@@ -20,8 +20,6 @@ import type { LigneJour } from '@/components/jour/lignes-jour'
 const PREFIXE = 'ruggers:brouillon:v1:'
 
 export type Brouillon = {
-  /** Ce qui reste dans le champ de saisie rapide, pas encore versé. */
-  saisie: string
   lignes: LigneJour[]
 }
 
@@ -51,10 +49,12 @@ export function lireBrouillon(cle: string): Brouillon | null {
     const lu = JSON.parse(brut) as unknown
     if (typeof lu !== 'object' || lu === null) return null
 
-    const { saisie, lignes } = lu as Record<string, unknown>
+    // Les brouillons écrits avant la disparition du champ de saisie rapide
+    // portent encore un `saisie` : on l'ignore, leurs lignes restent bonnes.
+    const { lignes } = lu as Record<string, unknown>
     if (!Array.isArray(lignes) || !lignes.every(estLigne)) return null
 
-    return { saisie: typeof saisie === 'string' ? saisie : '', lignes }
+    return { lignes }
   } catch {
     return null
   }
@@ -64,7 +64,7 @@ export function lireBrouillon(cle: string): Brouillon | null {
 export function ecrireBrouillon(cle: string, brouillon: Brouillon): void {
   if (typeof window === 'undefined') return
 
-  if (brouillon.lignes.length === 0 && brouillon.saisie.trim() === '') {
+  if (brouillon.lignes.length === 0) {
     effacerBrouillon(cle)
     return
   }

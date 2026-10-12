@@ -208,6 +208,11 @@ function LigneJournee({
 }) {
   const [ouvert, setOuvert] = useState(false)
   const inactif = jour.state === 'inactif'
+  // Ouverte pour être saisie au fil de l'eau, mais rien n'y a encore été
+  // porté : ce n'est pas une journée sans trade, c'est une journée pas encore
+  // regardée — et elle ne compte pas dans le plancher.
+  const aRelever = jour.state === 'ouvert'
+  const sansChiffres = inactif || aRelever
   const ecartes = jour.total - jour.pris
 
   const lignes: LigneJour[] =
@@ -241,10 +246,16 @@ function LigneJournee({
 
         <span className="flex min-w-0 flex-1 flex-col gap-1 md:flex-row md:items-center md:gap-3">
           <span className="flex items-center gap-2 md:min-w-0 md:flex-1">
-            <span className={cn('text-[15px]', inactif ? 'text-ink-3' : 'text-ink')}>
+            <span
+              className={cn('text-[15px]', sansChiffres ? 'text-ink-3' : 'text-ink')}
+            >
               {formatDayFr(jour.day)}
             </span>
-            {inactif ? (
+            {aRelever ? (
+              <span className="rounded bg-fill px-1.5 py-0.5 text-[11px] text-orange">
+                à relever
+              </span>
+            ) : inactif ? (
               <span className="rounded bg-fill px-1.5 py-0.5 text-[11px] text-ink-2">
                 inactif
               </span>
@@ -256,9 +267,9 @@ function LigneJournee({
             ) : null}
           </span>
 
-          {inactif ? (
+          {sansChiffres ? (
             <span className="text-[13px] text-ink-3 md:ml-auto">
-              Aucun trade ce jour-là
+              {aRelever ? 'Ouverte, pas encore relevée' : 'Aucun trade ce jour-là'}
             </span>
           ) : (
             <span className="flex items-baseline gap-3 md:contents">

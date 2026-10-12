@@ -23,12 +23,18 @@ export default async function WalletPage({
 
   // Ce que ce wallet-ci a en attente de relevé. Le relevé du matin porte sur
   // la veille : un test lancé aujourd'hui n'a encore rien à saisir.
+  //
+  // Une journée seulement ouverte ne compte pas comme saisie : elle attend
+  // son relevé au même titre qu'une journée absente, et la file du matin la
+  // réclame. Les deux décomptes doivent dire la même chose.
   const joursAFaire =
     wallet.status === 'test' && wallet.testStartedAt !== null
       ? joursManquants({
           debut: wallet.testStartedAt,
           jusqua: jourPrecedent(aujourdhui),
-          saisis: wallet.days.map((jour) => jour.day),
+          saisis: wallet.days
+            .filter((jour) => jour.state !== 'ouvert')
+            .map((jour) => jour.day),
         }).length
       : 0
 

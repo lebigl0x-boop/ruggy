@@ -38,8 +38,10 @@ function toPhase(value: string): TokenPhase {
   return value === 'test' ? 'test' : 'screening'
 }
 
-function toDayState(value: string): DayState {
-  return value === 'inactif' ? 'inactif' : 'actif'
+const ETATS_JOUR: readonly DayState[] = ['actif', 'inactif', 'ouvert']
+
+export function toDayState(value: string): DayState {
+  return ETATS_JOUR.includes(value as DayState) ? (value as DayState) : 'actif'
 }
 
 function toTagOverride(value: string | null): TagOverride | null {
