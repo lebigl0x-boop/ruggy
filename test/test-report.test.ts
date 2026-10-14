@@ -101,6 +101,17 @@ describe('computeTestReport — journées', () => {
     ])
   })
 
+  it('garde la journée affichable quand elle est la seule, et seulement ouverte', () => {
+    // Le cas du premier jour de test : on ouvre la journée en cours pour la
+    // remplir au fil de l'eau. `joursObserves` vaut alors 0 — l'écran du
+    // wallet doit se décider sur `days`, sinon il bascule sur son état vide
+    // et la journée n'est plus atteignable nulle part.
+    const rapport = computeTestReport([ouverte('2026-10-14')], S)
+    expect(rapport.joursObserves).toBe(0)
+    expect(rapport.days.map((j) => j.day)).toEqual(['2026-10-14'])
+    expect(rapport.days[0]!.state).toBe('ouvert')
+  })
+
   it('ne débloque pas le verdict sur des journées seulement ouvertes', () => {
     const rapport = computeTestReport(
       [

@@ -41,9 +41,10 @@ export function PhaseSection({
   /**
    * Journées de ce wallet en attente de relevé.
    *
-   * Zéro une fois le plancher atteint : le wallet n'attend plus un relevé
-   * mais une décision. Proposer d'aller saisir enverrait sur une file qui ne
-   * peut pas contenir ce wallet — et où c'est le premier venu qui s'ouvre.
+   * Le plancher n'y change rien : il ouvre le verdict, il ne ferme pas le
+   * relevé. Tant que le test n'est pas conclu, chaque journée écoulée vient
+   * s'ajouter ici — quatre journées qui ne tranchent pas se prolongent donc
+   * sans rien avoir à rouvrir.
    */
   joursAFaire: number
   onStart: () => void

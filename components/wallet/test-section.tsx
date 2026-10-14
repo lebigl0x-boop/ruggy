@@ -58,7 +58,12 @@ export function TestSection({
   onAddToken: (dayId: string) => void
   onDayState: (dayId: string, state: DayState) => void
 }) {
-  if (test.joursObserves === 0) {
+  // « Aucune journée » et non « aucune journée observée » : une journée
+  // seulement ouverte ne compte pas dans le plancher, mais elle existe et
+  // c'est précisément là qu'on vient la remplir. Trancher sur `joursObserves`
+  // renvoyait sur cet écran-ci, qui masque son bouton dès que la journée est
+  // ouverte — la journée devenait alors introuvable.
+  if (test.days.length === 0) {
     return (
       <section className="mb-6">
         <h2 className="mb-2 text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
@@ -95,56 +100,68 @@ export function TestSection({
       </h2>
 
       <div className="overflow-hidden rounded-card bg-card">
-        <div className="border-b border-separator px-5 py-5 text-center">
-          <p
-            className={cn(
-              'text-[34px] leading-none font-bold tracking-tight tabular-nums',
-              positif ? 'text-green' : test.pnlSol < 0 ? 'text-red' : 'text-ink-2',
-            )}
-          >
-            {formatSol(test.pnlSol)}
-          </p>
-          <p className="mt-1.5 text-[13px] text-ink-2">
-            sur {test.joursObserves}{' '}
-            {test.joursObserves > 1 ? 'journées' : 'journée'}, dont{' '}
-            {test.joursActifs} {test.joursActifs > 1 ? 'actives' : 'active'}
-          </p>
-          {ecartes > 0 ? (
-            <p className="mt-1 text-[13px] text-ink-3 tabular-nums">
-              {ecartes} {ecartes > 1 ? 'tokens écartés' : 'token écarté'} · en
-              prenant tout : {formatSol(test.report.netSolTout)}
+        {/* Un bilan de zéro journée relevée ne dit rien : « 0 SOL sur 0
+            journées », « 0/0 journées gagnantes ». Tant que rien n'est jugé,
+            on n'affiche que la liste des journées. */}
+        {test.joursObserves > 0 ? (
+          <div className="border-b border-separator px-5 py-5 text-center">
+            <p
+              className={cn(
+                'text-[34px] leading-none font-bold tracking-tight tabular-nums',
+                positif ? 'text-green' : test.pnlSol < 0 ? 'text-red' : 'text-ink-2',
+              )}
+            >
+              {formatSol(test.pnlSol)}
             </p>
-          ) : null}
-        </div>
+            <p className="mt-1.5 text-[13px] text-ink-2">
+              sur {test.joursObserves}{' '}
+              {test.joursObserves > 1 ? 'journées' : 'journée'}, dont{' '}
+              {test.joursActifs} {test.joursActifs > 1 ? 'actives' : 'active'}
+            </p>
+            {ecartes > 0 ? (
+              <p className="mt-1 text-[13px] text-ink-3 tabular-nums">
+                {ecartes} {ecartes > 1 ? 'tokens écartés' : 'token écarté'} · en
+                prenant tout : {formatSol(test.report.netSolTout)}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="border-b border-separator px-4 py-3 text-[13px] text-ink-2">
+            Journée ouverte, pas encore relevée. Dépliez-la pour la remplir au
+            fil de l’eau, ou marquez-la sans trade.
+          </p>
+        )}
 
-        <div className="grid grid-cols-2 border-b border-separator md:grid-cols-4">
-          <Mesure
-            label="Par jour"
-            valeur={formatSol(test.pnlMoyenParJour)}
-            detail="journées creuses comprises"
-          />
-          <Mesure
-            label="Tokens / jour actif"
-            valeur={test.tokensParJourActif.toFixed(1).replace('.', ',')}
-            detail={`exposition ${formatSol(test.expositionMaxSol, { sign: false })}`}
-          />
-          <Mesure
-            label="Journées gagnantes"
-            valeur={`${test.joursPositifs}/${test.joursObserves}`}
-            detail={
-              test.partMeilleurJour !== null
-                ? `meilleure : ${formatPercent(test.partMeilleurJour)} du gain`
-                : 'aucune journée positive'
-            }
-          />
-          <Mesure
-            label="Inactivité"
-            valeur={formatPercent(test.tauxInactivite)}
-            detail={`${test.joursInactifs} ${
-              test.joursInactifs > 1 ? 'journées sans trade' : 'journée sans trade'
-            }`}
-          />
-        </div>
+        {test.joursObserves > 0 ? (
+          <div className="grid grid-cols-2 border-b border-separator md:grid-cols-4">
+            <Mesure
+              label="Par jour"
+              valeur={formatSol(test.pnlMoyenParJour)}
+              detail="journées creuses comprises"
+            />
+            <Mesure
+              label="Tokens / jour actif"
+              valeur={test.tokensParJourActif.toFixed(1).replace('.', ',')}
+              detail={`exposition ${formatSol(test.expositionMaxSol, { sign: false })}`}
+            />
+            <Mesure
+              label="Journées gagnantes"
+              valeur={`${test.joursPositifs}/${test.joursObserves}`}
+              detail={
+                test.partMeilleurJour !== null
+                  ? `meilleure : ${formatPercent(test.partMeilleurJour)} du gain`
+                  : 'aucune journée positive'
+              }
+            />
+            <Mesure
+              label="Inactivité"
+              valeur={formatPercent(test.tauxInactivite)}
+              detail={`${test.joursInactifs} ${
+                test.joursInactifs > 1 ? 'journées sans trade' : 'journée sans trade'
+              }`}
+            />
+          </div>
+        ) : null}
 
         <div className="hidden items-center gap-3 border-b border-separator px-4 py-2 pl-11 text-[12px] text-ink-2 md:flex">
           <span className="min-w-0 flex-1">Journée</span>
