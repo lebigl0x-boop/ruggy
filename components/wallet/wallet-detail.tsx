@@ -16,6 +16,8 @@ import {
   setDayStateAction,
   setWalletStatusAction,
   startTestAction,
+  startTradeAction,
+  stopTradeAction,
   updateSolPriceAction,
   updateStrategyAction,
   updateTokenAction,
@@ -24,7 +26,13 @@ import {
 } from '@/app/actions'
 import type { TagOverride } from '@/lib/compute'
 import { computeWalletReport } from '@/lib/compute'
-import { GMGN_URL, SOLSCAN_URL, formatDateFr, shortAddress } from '@/lib/format'
+import {
+  GMGN_URL,
+  SOLSCAN_URL,
+  formatDateFr,
+  formatSol,
+  shortAddress,
+} from '@/lib/format'
 import type {
   GlobalSettings,
   Token,
@@ -34,6 +42,7 @@ import type {
 } from '@/lib/repo/types'
 import { screeningTokens, toDayInputs, toTokenInput } from '@/lib/repo/types'
 import { computeTestReport, type DayState } from '@/lib/test-report'
+import { computeTradeReport } from '@/lib/trade-report'
 import { CourbePnl, type PointCourbe } from '../charts/courbe-pnl'
 import { BarresJours } from '../charts/barres-jours'
 import { Tabs, type Onglet } from '../ui/tabs'
@@ -52,10 +61,11 @@ import { PhaseSection } from './phase-section'
 import { ResumeLot } from './resume-lot'
 import { StrategySection } from './strategy-section'
 import { TestSection, type JourneeEditable } from './test-section'
+import { TradeSection } from './trade-section'
 import { TokenTable } from './token-table'
 
 /** Les sections de la page, une par onglet. */
-type OngletWallet = 'bilan' | 'tokens' | 'journees' | 'reglages'
+type OngletWallet = 'bilan' | 'tokens' | 'journees' | 'trades' | 'reglages'
 
 export function WalletDetail({
   wallet: initial,
@@ -105,40 +115,71 @@ export function WalletDetail({
     [wallet, wallet.strategy, wallet.tagOverride, solPriceEur],
   )
 
+  // Le lot de trade est calculé à part des deux autres, et ne leur est jamais
+  // additionné : il porte des montants réels, eux une simulation.
+  const trade = useMemo(
+    () =>
+      computeTradeReport(toDayInputs(wallet, 'trade'), wallet.strategy, {
+        tagOverride: wallet.tagOverride,
+        solPriceEur,
+      }),
+    [wallet, wallet.strategy, wallet.tagOverride, solPriceEur],
+  )
+
   /**
    * Les journées, chacune avec ses tokens dans l'ordre où le bilan les a
    * calculés — c'est ce qui aligne les résultats affichés sur les lignes
    * saisies. `toDayInputs` parcourt `wallet.tokens` dans l'ordre : on refait
    * le même parcours ici.
    */
-  const journees = useMemo<JourneeEditable[]>(() => {
+  const journees = useMemo<Record<'test' | 'trade', JourneeEditable[]>>(() => {
     const parJour = new Map<string, Token[]>()
     for (const token of wallet.tokens) {
-      if (token.phase !== 'test' || token.dayId === null) continue
+      if (token.dayId === null) continue
       const liste = parJour.get(token.dayId)
       if (liste) liste.push(token)
       else parJour.set(token.dayId, [token])
     }
 
-    return wallet.days.map((jour) => ({
-      dayId: jour.id,
-      day: jour.day,
-      tokens: parJour.get(jour.id) ?? [],
-    }))
+    const construire = (phase: 'test' | 'trade') =>
+      wallet.days
+        .filter((jour) => jour.phase === phase)
+        .map((jour) => ({
+          dayId: jour.id,
+          day: jour.day,
+          tokens: parJour.get(jour.id) ?? [],
+        }))
+
+    return { test: construire('test'), trade: construire('trade') }
   }, [wallet])
 
   const enTest = wallet.status !== 'screening'
+  // L'onglet des trades survit à une pause : les journées déjà jouées restent
+  // consultables même quand le wallet repasse « validé ».
+  const enTrade = wallet.status === 'trade' || trade.days.length > 0
 
   const [onglet, setOnglet] = useState<OngletWallet>('bilan')
 
-  /** La courbe du wallet : une journée par point, dans l'ordre du temps. */
+  /**
+   * La courbe du wallet : une journée par point, dans l'ordre du temps.
+   *
+   * En phase active c'est le réel qui est tracé — tracer la simulation d'un
+   * wallet sur lequel on engage du SOL montrerait la prévision à la place du
+   * résultat.
+   */
   const courbe = useMemo<PointCourbe[]>(() => {
+    const source = wallet.status === 'trade' ? trade.days : test.days
+    const valeur = wallet.status === 'trade'
+      ? (jour: (typeof source)[number]) => jour.pnlReelSol
+      : (jour: (typeof source)[number]) => jour.pnlSol
+
     let cumul = 0
-    return test.days.map((jour) => {
-      cumul += jour.pnlSol
-      return { day: jour.day, pnlSol: jour.pnlSol, cumulSol: cumul }
+    return source.map((jour) => {
+      const pnlSol = valeur(jour)
+      cumul += pnlSol
+      return { day: jour.day, pnlSol, cumulSol: cumul }
     })
-  }, [test.days])
+  }, [test.days, trade.days, wallet.status])
 
   // L'onglet Journées n'existe pas tant que le test n'a pas commencé : un
   // onglet vide qui ne le sera jamais est pire qu'un onglet absent.
@@ -151,6 +192,15 @@ export function WalletDetail({
             value: 'journees' as const,
             label: 'Journées',
             badge: test.joursObserves || null,
+          },
+        ]
+      : []),
+    ...(enTrade
+      ? [
+          {
+            value: 'trades' as const,
+            label: 'Trades',
+            badge: trade.tradesChiffres || null,
           },
         ]
       : []),
@@ -257,7 +307,7 @@ export function WalletDetail({
               ),
             },
       )
-      setOnglet('journees')
+      setOnglet(wallet.status === 'trade' ? 'trades' : 'journees')
     })
   }
 
@@ -317,7 +367,9 @@ export function WalletDetail({
               detail={
                 wallet.status === 'test'
                   ? `j${test.joursObserves}/${test.joursMinimum}`
-                  : undefined
+                  : wallet.status === 'trade'
+                    ? formatSol(trade.pnlReelSol)
+                    : undefined
               }
             />
           </span>
@@ -365,6 +417,16 @@ export function WalletDetail({
             </BoutonLien>
             <BoutonExterne href={SOLSCAN_URL(wallet.address)}>Solscan</BoutonExterne>
             <BoutonExterne href={GMGN_URL(wallet.address)}>GMGN</BoutonExterne>
+            {/* Un lien et non un bouton : le navigateur sait télécharger une
+                réponse HTTP avec son nom de fichier, sans un octet de JS. */}
+            <a
+              href={`/wallets/${wallet.id}/export`}
+              download
+              title="Une ligne par token, les trois phases séparées"
+              className={STYLE_BOUTON}
+            >
+              CSV
+            </a>
           </div>
           <span className="shrink-0 sm:hidden">
             <StatusBadge status={wallet.status} />
@@ -380,7 +442,13 @@ export function WalletDetail({
         {actif === 'bilan' ? (
           <>
             <BilanCard
-              report={enTest ? test.report : report}
+              report={
+                wallet.status === 'trade'
+                  ? trade.report
+                  : enTest
+                    ? test.report
+                    : report
+              }
               strategy={wallet.strategy}
             />
 
@@ -408,8 +476,10 @@ export function WalletDetail({
                   walletId={wallet.id}
                   status={wallet.status}
                   testStartedAt={wallet.testStartedAt}
+                  tradeStartedAt={wallet.tradeStartedAt}
                   joursAFaire={joursAFaire}
                   test={test}
+                  trade={trade}
                   screeningN={report.n}
                   screeningSeuil={report.seuilAnalyse}
                   // Lancer le test fait apparaître l'onglet Journées : on y
@@ -436,6 +506,15 @@ export function WalletDetail({
                   }}
                   onClassify={(cible) =>
                     majStatut(() => setWalletStatusAction(wallet.id, cible), cible)
+                  }
+                  // Passer en phase active fait apparaître l'onglet Trades :
+                  // on y emmène, c'est là que tout se saisit désormais.
+                  onStartTrade={() => {
+                    majStatut(() => startTradeAction(wallet.id), 'trade')
+                    setOnglet('trades')
+                  }}
+                  onStopTrade={() =>
+                    majStatut(() => stopTradeAction(wallet.id), 'valide')
                   }
                 />
               </div>
@@ -485,9 +564,45 @@ export function WalletDetail({
 
             <TestSection
               test={test}
-              journees={journees}
+              journees={journees.test}
               strategy={wallet.strategy}
-              jourEnCoursSaisi={wallet.days.some((jour) => jour.day === aujourdhui)}
+              jourEnCoursSaisi={wallet.days.some(
+                (jour) => jour.phase === 'test' && jour.day === aujourdhui,
+              )}
+              onOuvrirJour={ouvrirJourEnCours}
+              onChangeToken={majToken}
+              onDeleteToken={supprimerToken}
+              onAddToken={ajouterTokenJour}
+              onDayState={majEtatJour}
+            />
+          </>
+        ) : null}
+
+        {actif === 'trades' && enTrade ? (
+          <>
+            {trade.days.length > 0 ? (
+              <section className="mb-4 rounded-card border border-separator bg-card px-4 pt-4 pb-3">
+                <h2 className="text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
+                  Résultat réel par journée
+                </h2>
+                <BarresJours
+                  className="mt-3"
+                  jours={trade.days.map((jour) => ({
+                    day: jour.day,
+                    pnlSol: jour.pnlReelSol,
+                    inactif: jour.state === 'inactif',
+                  }))}
+                />
+              </section>
+            ) : null}
+
+            <TradeSection
+              trade={trade}
+              journees={journees.trade}
+              strategy={wallet.strategy}
+              jourEnCoursSaisi={wallet.days.some(
+                (jour) => jour.phase === 'trade' && jour.day === aujourdhui,
+              )}
               onOuvrirJour={ouvrirJourEnCours}
               onChangeToken={majToken}
               onDeleteToken={supprimerToken}

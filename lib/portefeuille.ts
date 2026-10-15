@@ -1,13 +1,16 @@
 /**
  * Vue d'ensemble : ce que disent tous les wallets pris ensemble.
  *
- * Deux règles tiennent tout ce fichier, et ce sont les mêmes que dans
- * lib/test-report.ts :
+ * Trois règles tiennent tout ce fichier, et ce sont les mêmes que dans
+ * lib/test-report.ts et lib/trade-report.ts :
  *
  * - le screening ne s'additionne jamais au test. L'échantillon de screening
  *   est choisi à la main, donc flatteur par construction ; seul le relevé
  *   jour par jour est exhaustif. Les deux totaux existent, côte à côte,
  *   jamais confondus.
+ * - le test ne s'additionne jamais au réel. Le net de test est ce que la
+ *   stratégie *aurait* donné ; `netReelSol` est de l'argent compté. Les
+ *   mélanger donnerait un total que rien ne vérifie.
  * - un token non pris ne compte pas dans le résultat, mais compte dans ce que
  *   le wallet a lancé.
  *
@@ -18,6 +21,7 @@ import { computeWalletReport, type Tag } from './compute'
 import type { GlobalSettings, WalletStatus, WalletWithTokens } from './repo/types'
 import { screeningTokens, toDayInputs, toTokenInput } from './repo/types'
 import { computeTestReport } from './test-report'
+import { computeTradeReport } from './trade-report'
 
 /** Un jour de la courbe, tous wallets confondus. */
 export type PointJour = {
@@ -56,6 +60,14 @@ export type LigneWallet = {
   taux: number
   /** Tokens notés attendus avant de juger un screening. */
   seuilAnalyse: number
+  /**
+   * Résultat réellement encaissé en phase active, en SOL. Zéro tant qu'aucun
+   * trade n'est chiffré. Il ne s'ajoute pas à `netSol` : l'un est compté,
+   * l'autre simulé.
+   */
+  netReelSol: number
+  /** Journées de trade relevées. */
+  joursTrades: number
   joursObserves: number
   /** Journées à observer avant de pouvoir conclure un test. */
   joursMinimum: number
@@ -79,6 +91,18 @@ export type Portefeuille = {
    */
   netScreeningSol: number
 
+  /**
+   * Ce que la phase active a réellement rapporté, tous wallets confondus.
+   * Tenu à part de `netTestSol` : le test simule, celui-ci compte.
+   */
+  netReelSol: number
+  /** Converti, ou `null` si le prix du SOL n'est pas renseigné. */
+  netReelEur: number | null
+  /** Trades dont l'entrée et la sortie sont saisies. */
+  tradesChiffres: number
+  /** Trades pris qui attendent encore leurs montants. */
+  tradesIncomplets: number
+
   /** Tokens relevés en phase de test, pris ou non. */
   tokensTest: number
   /** Tokens pris en phase de test. */
@@ -92,8 +116,14 @@ export type Portefeuille = {
 
   /** Journées distinctes relevées, toutes phases de test confondues. */
   joursObserves: number
-  /** La courbe, de la plus ancienne journée à la plus récente. */
+  /** La courbe du test, de la plus ancienne journée à la plus récente. */
   courbe: PointJour[]
+  /**
+   * La même courbe pour la phase active, en SOL réellement encaissés. Vide
+   * tant qu'aucun trade n'est chiffré. Deux courbes et non une seule : elles
+   * ne mesurent pas la même chose, les superposer mentirait.
+   */
+  courbeReelle: PointJour[]
 
   /** Une ligne par wallet, dans l'ordre reçu. */
   lignes: LigneWallet[]
@@ -106,6 +136,7 @@ const STATUTS_VIDES: Record<WalletStatus, number> = {
   screening: 0,
   test: 0,
   valide: 0,
+  trade: 0,
   rejete: 0,
 }
 
@@ -122,10 +153,14 @@ export function computePortefeuille(
 ): Portefeuille {
   const parStatut = { ...STATUTS_VIDES }
   const parJour = new Map<string, { pnlSol: number; wallets: number }>()
+  const parJourReel = new Map<string, { pnlSol: number; wallets: number }>()
   const lignes: LigneWallet[] = []
 
   let netTestSol = 0
   let netScreeningSol = 0
+  let netReelSol = 0
+  let tradesChiffres = 0
+  let tradesIncomplets = 0
   let tokensTest = 0
   let tokensPris = 0
   let tokensNotes = 0
@@ -143,24 +178,25 @@ export function computePortefeuille(
       options,
     )
     const test = computeTestReport(toDayInputs(wallet), wallet.strategy, options)
+    const trade = computeTradeReport(
+      toDayInputs(wallet, 'trade'),
+      wallet.strategy,
+      options,
+    )
 
     parStatut[wallet.status] += 1
     netScreeningSol += screening.netSol
     netTestSol += test.pnlSol
+    netReelSol += trade.pnlReelSol
+    tradesChiffres += trade.tradesChiffres
+    tradesIncomplets += trade.tradesIncomplets
     tokensTest += test.tokensTotal
     tokensPris += test.tokensPris
     tokensNotes += test.report.n
     hits += test.report.hits
 
-    for (const jour of test.days) {
-      const cumul = parJour.get(jour.day)
-      if (cumul) {
-        cumul.pnlSol += jour.pnlSol
-        cumul.wallets += 1
-      } else {
-        parJour.set(jour.day, { pnlSol: jour.pnlSol, wallets: 1 })
-      }
-    }
+    cumulerJours(parJour, test.days, (jour) => jour.pnlSol)
+    cumulerJours(parJourReel, trade.days, (jour) => jour.pnlReelSol)
 
     // Une fois le test lancé, c'est lui qui fait foi : l'échantillon de
     // screening est choisi à la main, le relevé de test est exhaustif.
@@ -177,6 +213,8 @@ export function computePortefeuille(
       nPris: enAvant.nPris,
       taux: enAvant.taux,
       seuilAnalyse: enAvant.seuilAnalyse,
+      netReelSol: trade.pnlReelSol,
+      joursTrades: trade.joursObserves,
       joursObserves: test.joursObserves,
       joursMinimum: test.joursMinimum,
       joursRestants: test.joursRestants,
@@ -186,13 +224,8 @@ export function computePortefeuille(
     })
   }
 
-  let cumul = 0
-  const courbe: PointJour[] = [...parJour.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([day, jour]) => {
-      cumul += jour.pnlSol
-      return { day, pnlSol: jour.pnlSol, cumulSol: cumul, wallets: jour.wallets }
-    })
+  const courbe = tracer(parJour)
+  const courbeReelle = tracer(parJourReel)
 
   // Un wallet sans aucun token noté n'est ni le meilleur ni le pire : son
   // zéro ne dit rien, et il écraserait un vrai résultat négatif.
@@ -206,6 +239,11 @@ export function computePortefeuille(
     netTestEur:
       settings.solPriceEur !== null ? netTestSol * settings.solPriceEur : null,
     netScreeningSol,
+    netReelSol,
+    netReelEur:
+      settings.solPriceEur !== null ? netReelSol * settings.solPriceEur : null,
+    tradesChiffres,
+    tradesIncomplets,
     tokensTest,
     tokensPris,
     tokensNotes,
@@ -213,10 +251,42 @@ export function computePortefeuille(
     taux: tokensNotes > 0 ? (hits / tokensNotes) * 100 : 0,
     joursObserves: parJour.size,
     courbe,
+    courbeReelle,
     lignes,
     meilleur: classees[0] ?? null,
     pire: classees.length > 1 ? (classees.at(-1) ?? null) : null,
   }
+}
+
+/** Empile les journées d'un wallet dans le cumul tous-wallets d'une date. */
+function cumulerJours<T extends { day: string }>(
+  parJour: Map<string, { pnlSol: number; wallets: number }>,
+  jours: readonly T[],
+  valeur: (jour: T) => number,
+): void {
+  for (const jour of jours) {
+    const pnlSol = valeur(jour)
+    const cumul = parJour.get(jour.day)
+    if (cumul) {
+      cumul.pnlSol += pnlSol
+      cumul.wallets += 1
+    } else {
+      parJour.set(jour.day, { pnlSol, wallets: 1 })
+    }
+  }
+}
+
+/** Les journées cumulées, triées dans le temps, avec leur cumul courant. */
+function tracer(
+  parJour: ReadonlyMap<string, { pnlSol: number; wallets: number }>,
+): PointJour[] {
+  let cumul = 0
+  return [...parJour.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, jour]) => {
+      cumul += jour.pnlSol
+      return { day, pnlSol: jour.pnlSol, cumulSol: cumul, wallets: jour.wallets }
+    })
 }
 
 /**
@@ -233,6 +303,7 @@ export function parEtat(
     screening: [],
     test: [],
     valide: [],
+    trade: [],
     rejete: [],
   }
 
@@ -284,10 +355,13 @@ export type ColonnePortefeuille = (typeof COLONNES_PORTEFEUILLE)[number]
 export type Tri = { colonne: ColonnePortefeuille; sens: 'asc' | 'desc' }
 
 const ORDRE_STATUT: Record<WalletStatus, number> = {
-  test: 0,
-  screening: 1,
-  valide: 2,
-  rejete: 3,
+  // La phase active en tête : c'est là qu'il y a du SOL en jeu, donc là qu'on
+  // regarde en premier.
+  trade: 0,
+  test: 1,
+  screening: 2,
+  valide: 3,
+  rejete: 4,
 }
 
 /**

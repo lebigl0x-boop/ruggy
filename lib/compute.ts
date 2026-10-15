@@ -50,6 +50,19 @@ export type TokenInput = {
    * sur tout ce qu'il fait, le résultat sur ce qu'on lui a pris.
    */
   pris: boolean
+
+  /**
+   * SOL réellement engagé sur ce trade. Absent ou `null` hors phase active.
+   *
+   * Dès que le couple entrée/sortie est renseigné, il remplace entièrement
+   * la simulation : ni `mise`, ni `frais`, ni `perteRug` n'interviennent
+   * plus. C'est voulu — un trade réel ne se devine pas depuis une mise
+   * théorique, et prétendre le contraire donnerait un PNL faux de façon
+   * invisible.
+   */
+  entreeSol?: number | null
+  /** SOL réellement récupéré à la sortie, frais et slippage compris. */
+  sortieSol?: number | null
 }
 
 /** Résultat d'un token noté. */
@@ -60,6 +73,12 @@ export type TokenResult = {
   sol: number
   /** Le token a atteint l'objectif. */
   hit: boolean
+  /**
+   * Le résultat vient de montants réellement engagés, et non de la
+   * simulation. Un bilan qui mélangerait les deux ne voudrait rien dire :
+   * c'est ce drapeau qui permet de les compter à part.
+   */
+  reel: boolean
 }
 
 /** Une ligne du tableau, alignée sur l'ordre des tokens fournis. */
@@ -100,6 +119,11 @@ export type WalletReport = {
   n: number
   /** Nombre de tokens notés et pris : ce qui a réellement été joué. */
   nPris: number
+  /**
+   * Parmi les tokens pris, ceux dont le résultat vient de montants réels.
+   * Face à `nPris`, il dit quelle part du net est de l'argent compté.
+   */
+  nReels: number
   /** Nombre de tokens notés ayant atteint l'objectif, pris ou non. */
   hits: number
   /** Taux à l'objectif, en % (0 si aucun token noté). Mesure le wallet. */
@@ -148,6 +172,25 @@ export type WalletReport = {
   seuilAnalyse: number
 }
 
+/**
+ * Les montants réels d'un trade, quand ils sont utilisables.
+ *
+ * Une entrée nulle ou négative n'est pas un trade : elle rendrait le
+ * pourcentage infini. Une sortie absente veut dire « position pas encore
+ * soldée », pas « tout perdu » — on ne l'invente pas, le token reste non
+ * noté jusqu'à ce que le montant soit saisi.
+ */
+function montantsReels(
+  token: TokenInput,
+): { entree: number; sortie: number } | null {
+  const entree = token.entreeSol
+  const sortie = token.sortieSol
+  if (entree === undefined || entree === null || !Number.isFinite(entree)) return null
+  if (sortie === undefined || sortie === null || !Number.isFinite(sortie)) return null
+  if (entree <= 0 || sortie < 0) return null
+  return { entree, sortie }
+}
+
 /** Nombre de tokens notés à partir duquel un wallet est jugeable. */
 export const SEUIL_ANALYSE = 10
 
@@ -160,7 +203,18 @@ export const DEFAULT_STRATEGY: Strategy = {
 }
 
 /**
- * Résultat d'un token. Il n'y a que deux issues possibles :
+ * Résultat d'un token.
+ *
+ * Deux régimes, et ils ne se mélangent pas.
+ *
+ * **Trade réel.** Si le token porte des montants engagés, le résultat est
+ * leur différence, point. C'est de l'argent compté, pas une estimation : les
+ * frais de réseau, le slippage et les sorties partielles sont déjà dans les
+ * chiffres. Appliquer par-dessus la mise et les frais du wallet reviendrait à
+ * simuler ce qu'on a déjà mesuré.
+ *
+ * **Simulation.** Sinon, on rejoue le lancement avec les réglages du wallet.
+ * Il n'y a alors que deux issues possibles :
  *
  * - gain >= objectif → le lancement est réussi, et il rapporte sa montée
  *                      réelle
@@ -178,15 +232,28 @@ export const DEFAULT_STRATEGY: Strategy = {
  * dépend pas de la décision de le jouer. C'est le bilan qui écarte ensuite
  * les tokens non pris du résultat.
  *
- * Renvoie `null` si le token n'est pas noté.
+ * Renvoie `null` si le token n'est pas noté — ni gain relevé, ni montants.
  */
 export function computeTokenResult(
   token: TokenInput,
   strategy: Strategy,
 ): TokenResult | null {
-  if (token.gain === null || !Number.isFinite(token.gain)) return null
+  const note = token.gain !== null && Number.isFinite(token.gain)
+  const reels = montantsReels(token)
 
-  const hit = token.gain >= strategy.objectif
+  if (reels !== null) {
+    const sol = reels.sortie - reels.entree
+    const percent = (sol / reels.entree) * 100
+    // L'objectif se juge sur la montée du token quand elle est relevée : il
+    // dit ce que le *wallet* a fait. À défaut, on se rabat sur ce que le
+    // trade a rendu, qui est au moins une mesure de la même journée.
+    const hit = note ? token.gain! >= strategy.objectif : percent >= strategy.objectif
+    return { percent, sol, hit, reel: true }
+  }
+
+  if (!note) return null
+
+  const hit = token.gain! >= strategy.objectif
   const perteBrute =
     token.perteRug !== null && Number.isFinite(token.perteRug)
       ? token.perteRug
@@ -197,10 +264,10 @@ export function computeTokenResult(
   // perd pas plus que sa mise sur un achat au comptant.
   const perte = Math.min(100, Math.abs(perteBrute))
 
-  const percent = hit ? token.gain : -perte
+  const percent = hit ? token.gain! : -perte
   const sol = (strategy.mise * percent) / 100 - strategy.frais
 
-  return { percent, sol, hit }
+  return { percent, sol, hit, reel: false }
 }
 
 /** Moyenne arithmétique. Les appelants garantissent une liste non vide. */
@@ -296,6 +363,7 @@ export function computeWalletReport(
   let cumulTout = 0
   let n = 0
   let nPris = 0
+  let nReels = 0
   let hits = 0
 
   for (const token of tokens) {
@@ -317,6 +385,7 @@ export function computeWalletReport(
 
     // À partir d'ici, le token a été joué : il compte dans le résultat.
     nPris += 1
+    if (result.reel) nReels += 1
     cumul += result.sol
     if (result.hit) gainsSol.push(result.sol)
     else pertesSol.push(result.sol)
@@ -351,6 +420,7 @@ export function computeWalletReport(
     rows,
     n,
     nPris,
+    nReels,
     hits,
     taux,
     netSol,

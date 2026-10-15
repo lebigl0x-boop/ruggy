@@ -40,7 +40,12 @@ describe('computeTokenResult', () => {
 
   it('encaisse la montée réelle quand elle dépasse l’objectif', () => {
     const r = computeTokenResult({ gain: 150, perteRug: null, delay: null, pris: true }, S)
-    expect(r).toEqual({ percent: 150, sol: expect.closeTo(0.147, 10), hit: true })
+    expect(r).toEqual({
+      percent: 150,
+      sol: expect.closeTo(0.147, 10),
+      hit: true,
+      reel: false,
+    })
   })
 
   it('n’écrase pas deux gains inégaux au-dessus de l’objectif', () => {

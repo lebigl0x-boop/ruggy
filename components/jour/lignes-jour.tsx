@@ -30,6 +30,12 @@ export type LigneJour = {
   perteRug: number | null
   delay: number | null
   pris: boolean
+  /**
+   * SOL réellement engagé et récupéré. Renseignés en phase active seulement :
+   * dès qu'ils le sont, ils remplacent la simulation pour cette ligne.
+   */
+  entreeSol?: number | null
+  sortieSol?: number | null
 }
 
 export type PatchLigne = Partial<Omit<LigneJour, 'cle'>>
@@ -38,7 +44,15 @@ export type PatchLigne = Partial<Omit<LigneJour, 'cle'>>
  * Les champs d'une ligne, dans l'ordre de tabulation. Sert à retrouver le
  * même champ sur la ligne voisine quand on monte ou on descend.
  */
-const CHAMPS = ['nom', 'gain', 'perte', 'delai', 'pris'] as const
+const CHAMPS = [
+  'nom',
+  'gain',
+  'perte',
+  'delai',
+  'entree',
+  'sortie',
+  'pris',
+] as const
 type Champ = (typeof CHAMPS)[number]
 
 /**
@@ -75,6 +89,7 @@ export function LignesJour({
   lignes,
   rows,
   strategy,
+  montants = false,
   onChange,
   onDelete,
   onAdd,
@@ -83,6 +98,14 @@ export function LignesJour({
   /** Résultats calculés, alignés sur l'ordre des lignes. */
   rows: readonly ReportRow[]
   strategy: Strategy
+  /**
+   * Afficher les colonnes d'entrée et de sortie en SOL.
+   *
+   * Réservé à la phase active : en test, aucun SOL n'est engagé, et offrir
+   * les champs inviterait à y porter des montants qui ne seraient jamais
+   * comptés.
+   */
+  montants?: boolean
   onChange: (cle: string, patch: PatchLigne) => void
   onDelete: (cle: string) => void
   onAdd: () => void
@@ -126,6 +149,12 @@ export function LignesJour({
         <span className="w-16 shrink-0 text-right">Gain %</span>
         <span className="w-16 shrink-0 text-right">Perte %</span>
         <span className="w-14 shrink-0 text-right">Délai</span>
+        {montants ? (
+          <>
+            <span className="w-16 shrink-0 text-right">Entrée</span>
+            <span className="w-16 shrink-0 text-right">Sortie</span>
+          </>
+        ) : null}
         <span className="w-12 shrink-0 text-center">Pris</span>
         <span className="w-32 shrink-0 text-right">Résultat</span>
         <span className="w-7 shrink-0" aria-hidden />
@@ -138,6 +167,7 @@ export function LignesJour({
           index={index}
           row={rows[index] ?? { result: null, pris: ligne.pris, cumulSol: null }}
           strategy={strategy}
+          montants={montants}
           onChange={onChange}
           onDelete={onDelete}
         />
@@ -160,6 +190,7 @@ function Ligne({
   index,
   row,
   strategy,
+  montants,
   onChange,
   onDelete,
 }: {
@@ -167,6 +198,7 @@ function Ligne({
   index: number
   row: ReportRow
   strategy: Strategy
+  montants: boolean
   onChange: (cle: string, patch: PatchLigne) => void
   onDelete: (cle: string) => void
 }) {
@@ -232,7 +264,12 @@ function Ligne({
         </button>
       </div>
 
-      <div className="mt-1 grid grid-cols-3 gap-2 pl-7 md:mt-0 md:contents">
+      <div
+        className={cn(
+          'mt-1 grid gap-2 pl-7 md:mt-0 md:contents',
+          montants ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-3',
+        )}
+      >
         <Champ label="Gain" className="md:order-3 md:w-16">
           <NumberField
             ariaLabel={`Gain du token ${numero} en pourcentage`}
@@ -264,6 +301,33 @@ function Ligne({
             onChange={(delay) => onChange(ligne.cle, { delay })}
           />
         </Champ>
+
+        {/* Même `order` que le délai : en flex, les égalités se départagent
+            par l'ordre du DOM, et les deux colonnes tombent juste après lui
+            sans qu'il faille renuméroter tout le reste de la ligne. */}
+        {montants ? (
+          <>
+            <Champ label="Entrée" className="md:order-5 md:w-16">
+              <NumberField
+                ariaLabel={`SOL engagé sur le token ${numero}`}
+                dataChamp="entree"
+                dataLigne={ligne.cle}
+                value={ligne.entreeSol ?? null}
+                onChange={(entreeSol) => onChange(ligne.cle, { entreeSol })}
+              />
+            </Champ>
+
+            <Champ label="Sortie" className="md:order-5 md:w-16">
+              <NumberField
+                ariaLabel={`SOL récupéré sur le token ${numero}`}
+                dataChamp="sortie"
+                dataLigne={ligne.cle}
+                value={ligne.sortieSol ?? null}
+                onChange={(sortieSol) => onChange(ligne.cle, { sortieSol })}
+              />
+            </Champ>
+          </>
+        ) : null}
       </div>
 
       {/* Rappel du réglage appliqué, utile quand le résultat surprend. */}

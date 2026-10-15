@@ -10,6 +10,7 @@ import type {
   WalletRow,
 } from '../db/schema'
 import type {
+  DayPhase,
   GlobalSettings,
   Source,
   Token,
@@ -23,7 +24,13 @@ function toSource(value: string): Source {
   return value === 'helius' ? 'helius' : 'manual'
 }
 
-const STATUTS: readonly string[] = ['screening', 'test', 'valide', 'rejete']
+const STATUTS: readonly string[] = [
+  'screening',
+  'test',
+  'valide',
+  'trade',
+  'rejete',
+]
 
 /** Un statut inconnu en base retombe sur le début de l'entonnoir. */
 function toStatus(value: string): WalletStatus {
@@ -32,10 +39,18 @@ function toStatus(value: string): WalletStatus {
 
 /**
  * Un token dont la phase est illisible est rattaché au screening : il ne
- * polluera pas le bilan de test, qui doit rester exhaustif par construction.
+ * polluera ni le bilan de test, qui doit rester exhaustif par construction,
+ * ni le résultat réel, qui ne doit porter que sur de l'argent engagé.
  */
 function toPhase(value: string): TokenPhase {
-  return value === 'test' ? 'test' : 'screening'
+  if (value === 'test') return 'test'
+  if (value === 'trade') return 'trade'
+  return 'screening'
+}
+
+/** Une journée de phase illisible est une journée de test : c'est l'ancien cas. */
+function toDayPhase(value: string): DayPhase {
+  return value === 'trade' ? 'trade' : 'test'
 }
 
 const ETATS_JOUR: readonly DayState[] = ['actif', 'inactif', 'ouvert']
@@ -58,6 +73,7 @@ export function mapWallet(row: WalletRow): Wallet {
     tagOverride: toTagOverride(row.tagOverride),
     status: toStatus(row.status),
     testStartedAt: row.testStartedAt,
+    tradeStartedAt: row.tradeStartedAt,
     strategy: {
       mise: row.mise,
       objectif: row.objectif,
@@ -84,6 +100,8 @@ export function mapToken(row: TokenRow): Token {
     pris: row.pris,
     phase: toPhase(row.phase),
     dayId: row.dayId,
+    entreeSol: row.entreeSol,
+    sortieSol: row.sortieSol,
     source: toSource(row.source),
   }
 }
@@ -94,6 +112,7 @@ export function mapWalletDay(row: WalletDayRow): WalletDay {
     walletId: row.walletId,
     day: row.day,
     state: toDayState(row.state),
+    phase: toDayPhase(row.phase),
     note: row.note,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

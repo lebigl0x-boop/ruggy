@@ -46,6 +46,7 @@ const STATUT_DU_SEGMENT: Record<Exclude<Segment, 'tous'>, WalletStatus> = {
   screening: 'screening',
   test: 'test',
   valides: 'valide',
+  actifs: 'trade',
   ecartes: 'rejete',
 }
 

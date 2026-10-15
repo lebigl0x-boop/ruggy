@@ -39,7 +39,7 @@ export async function createToken(walletId: string): Promise<Token> {
 export type CreateTokensOptions = {
   /** Lot de rattachement. 'screening' par défaut. */
   phase?: TokenPhase
-  /** Journée de rattachement, obligatoire en phase de test. */
+  /** Journée de rattachement, obligatoire hors screening. */
   dayId?: string | null
   /**
    * `source` permet au futur module d'import (Helius) d'insérer des tokens
@@ -77,6 +77,8 @@ export async function createTokens(
     pris: input.pris ?? true,
     phase: options.phase ?? 'screening',
     dayId: options.dayId ?? null,
+    entreeSol: input.entreeSol ?? null,
+    sortieSol: input.sortieSol ?? null,
     source: options.source ?? 'manual',
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -98,6 +100,8 @@ export async function updateToken(
   if (patch.perteRug !== undefined) values.perteRug = patch.perteRug
   if (patch.delay !== undefined) values.delay = patch.delay
   if (patch.pris !== undefined) values.pris = patch.pris
+  if (patch.entreeSol !== undefined) values.entreeSol = patch.entreeSol
+  if (patch.sortieSol !== undefined) values.sortieSol = patch.sortieSol
 
   await db.update(tokens).set(values).where(eq(tokens.id, id))
 }

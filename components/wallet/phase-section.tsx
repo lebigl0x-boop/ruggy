@@ -6,23 +6,30 @@ import { useState } from 'react'
 import { formatDateFr } from '@/lib/format'
 import type { WalletStatus } from '@/lib/repo/types'
 import type { TestReport } from '@/lib/test-report'
+import type { TradeReport } from '@/lib/trade-report'
 import { cn } from '../ui/cn'
 import { ChevronRightIcon } from '../ui/icons'
 import { Sheet } from '../ui/sheet'
 import { STATUS_LABELS, StatusBadge } from '../ui/status-badge'
 
 /**
- * Le pilotage de l'entonnoir : screening → test → verdict.
+ * Le pilotage de l'entonnoir : screening → test → verdict → phase active.
  *
  * C'est ici qu'on fait passer un wallet en mode test, et ici seulement que le
  * test se conclut. Le bouton « Conclure » reste grisé tant que le plancher de
  * journées n'est pas atteint : c'est la raison d'être du plancher.
+ *
+ * La dernière marche est la seule où du SOL est engagé pour de bon : elle ne
+ * s'ouvre qu'à un wallet validé, parce que c'est exactement ce que
+ * l'entonnoir existe pour protéger.
  */
 export function PhaseSection({
   walletId,
   status,
   testStartedAt,
+  tradeStartedAt,
   test,
+  trade,
   screeningN,
   screeningSeuil,
   joursAFaire,
@@ -31,11 +38,15 @@ export function PhaseSection({
   onCancel,
   onReopen,
   onClassify,
+  onStartTrade,
+  onStopTrade,
 }: {
   walletId: string
   status: WalletStatus
   testStartedAt: string | null
+  tradeStartedAt: string | null
   test: TestReport
+  trade: TradeReport
   screeningN: number
   screeningSeuil: number
   /**
@@ -52,6 +63,8 @@ export function PhaseSection({
   onCancel: () => void
   onReopen: () => void
   onClassify: (status: WalletStatus) => void
+  onStartTrade: () => void
+  onStopTrade: () => void
 }) {
   const [verdictOuvert, setVerdictOuvert] = useState(false)
   const [classementOuvert, setClassementOuvert] = useState(false)
@@ -72,17 +85,25 @@ export function PhaseSection({
                   ? `j${test.joursObserves}/${test.joursMinimum}`
                   : status === 'screening'
                     ? `${screeningN}/${screeningSeuil}`
-                    : undefined
+                    : status === 'trade'
+                      ? `${trade.tradesChiffres} ${trade.tradesChiffres > 1 ? 'trades' : 'trade'}`
+                      : undefined
               }
             />
-            {testStartedAt !== null && status !== 'screening' ? (
+            {status === 'trade' && tradeStartedAt !== null ? (
+              <span className="ml-auto text-[13px] text-ink-2">
+                actif depuis le {formatDateFr(tradeStartedAt)}
+              </span>
+            ) : testStartedAt !== null && status !== 'screening' ? (
               <span className="ml-auto text-[13px] text-ink-2">
                 test ouvert le {formatDateFr(testStartedAt)}
               </span>
             ) : null}
           </div>
 
-          <p className="px-4 py-3 text-[15px] text-ink-2">{explication(status, test, screeningN, screeningSeuil)}</p>
+          <p className="px-4 py-3 text-[15px] text-ink-2">
+            {explication(status, test, trade, screeningN, screeningSeuil)}
+          </p>
 
           {status === 'screening' ? (
             <Action onClick={onStart}>Lancer la phase de test</Action>
@@ -124,8 +145,20 @@ export function PhaseSection({
             </>
           ) : null}
 
+          {status === 'valide' ? (
+            <Action onClick={onStartTrade}>Passer en phase active</Action>
+          ) : null}
+
+          {status === 'trade' ? (
+            <Action onClick={onStopTrade} discret>
+              Arrêter de trader ce wallet
+            </Action>
+          ) : null}
+
           {status === 'valide' || status === 'rejete' ? (
-            <Action onClick={onReopen}>Rouvrir le test</Action>
+            <Action onClick={onReopen} discret={status === 'valide'}>
+              Rouvrir le test
+            </Action>
           ) : null}
 
           {status !== 'test' ? (
@@ -137,6 +170,10 @@ export function PhaseSection({
 
         {test.conseil !== null && status === 'test' ? (
           <p className="mt-2 px-4 text-[13px] text-orange">{test.conseil.message}</p>
+        ) : null}
+
+        {trade.conseil !== null && status === 'trade' ? (
+          <p className="mt-2 px-4 text-[13px] text-orange">{trade.conseil.message}</p>
         ) : null}
       </section>
 
@@ -185,12 +222,18 @@ export function PhaseSection({
           connaissez déjà — les chiffres affichés resteront ceux du screening.
         </p>
         <div className="flex flex-col gap-2">
-          {(['valide', 'rejete', 'screening'] as const)
+          {(['valide', 'trade', 'rejete', 'screening'] as const)
             .filter((cible) => cible !== status)
             .map((cible) => (
               <BoutonVerdict
                 key={cible}
-                ton={cible === 'valide' ? 'valide' : cible === 'rejete' ? 'rejete' : 'neutre'}
+                ton={
+                  cible === 'valide' || cible === 'trade'
+                    ? 'valide'
+                    : cible === 'rejete'
+                      ? 'rejete'
+                      : 'neutre'
+                }
                 onClick={() => {
                   setClassementOuvert(false)
                   onClassify(cible)
@@ -208,6 +251,7 @@ export function PhaseSection({
 function explication(
   status: WalletStatus,
   test: TestReport,
+  trade: TradeReport,
   screeningN: number,
   screeningSeuil: number,
 ): string {
@@ -223,7 +267,17 @@ function explication(
           } avant de pouvoir conclure.`
         : `${test.joursObserves} journées observées, dont ${test.joursActifs} avec des trades. Le verdict est ouvert.`
     case 'valide':
-      return 'Wallet validé. Les chiffres affichés sont ceux de la phase de test.'
+      return trade.tradesChiffres > 0
+        ? 'Wallet validé, phase active en pause. Les trades déjà joués sont conservés.'
+        : 'Wallet validé. Passez-le en phase active pour enregistrer vos trades réels.'
+    case 'trade':
+      return trade.tradesChiffres === 0
+        ? 'Phase active. Saisissez l’entrée et la sortie en SOL de chaque trade : à partir d’ici, les chiffres sont comptés et non simulés.'
+        : `${trade.tradesChiffres} ${
+            trade.tradesChiffres > 1 ? 'trades chiffrés' : 'trade chiffré'
+          } sur ${trade.joursObserves} ${
+            trade.joursObserves > 1 ? 'journées' : 'journée'
+          }. Le résultat affiché est de l’argent compté, pas une simulation.`
     case 'rejete':
       return 'Wallet écarté. Rouvrez le test pour lui redonner sa chance.'
   }

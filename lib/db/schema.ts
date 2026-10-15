@@ -48,13 +48,19 @@ export const wallets = pgTable(
 
     /**
      * Où en est le wallet dans l'entonnoir :
-     * 'screening' | 'test' | 'valide' | 'rejete'.
+     * 'screening' | 'test' | 'valide' | 'trade' | 'rejete'.
      * C'est un axe distinct du tag : le statut dit où on en est, le tag dit
      * ce que disent les chiffres.
+     *
+     * 'trade' est la phase active : le wallet est validé *et* on engage du
+     * SOL dessus. C'est le seul statut où les chiffres enregistrés sont des
+     * montants réels et non une simulation.
      */
     status: text('status').notNull().default('screening'),
     /** Premier jour de la phase de test, AAAA-MM-JJ. null hors phase de test. */
     testStartedAt: text('test_started_at'),
+    /** Premier jour de la phase active, AAAA-MM-JJ. null avant le premier trade. */
+    tradeStartedAt: text('trade_started_at'),
 
     // Réglages de stratégie propres au wallet.
     mise: doublePrecision('mise').notNull().default(0.1),
@@ -78,12 +84,17 @@ export const wallets = pgTable(
 )
 
 /**
- * Une journée de la phase de test, pour un wallet.
+ * Une journée de relevé, pour un wallet.
  *
  * La ligne existe même quand le wallet n'a rien tradé : c'est la différence
  * entre « je n'ai pas vérifié » et « il n'a rien fait ». Sans elle, le
  * décompte des jours d'observation serait faux et le plancher de la phase 2
  * ne voudrait rien dire.
+ *
+ * La journée porte sa phase : une journée de test observe ce que le wallet a
+ * lancé, une journée de trade enregistre ce qu'on a joué. Les deux séries ne
+ * se mélangent jamais — un relevé simulé et un relevé réel ne s'additionnent
+ * pas plus que screening et test.
  */
 export const walletDays = pgTable(
   'wallet_days',
@@ -96,12 +107,24 @@ export const walletDays = pgTable(
     day: text('day').notNull(),
     /** 'actif' = il a tradé ; 'inactif' = journée sans trade. */
     state: text('state').notNull().default('actif'),
+    /**
+     * À quelle phase appartient la journée : 'test' ou 'trade'.
+     *
+     * Par défaut 'test', pour que les journées antérieures à la phase active
+     * gardent exactement le sens qu'elles avaient.
+     */
+    phase: text('phase').notNull().default('test'),
     note: text('note').notNull().default(''),
     /** Moment de la saisie. */
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
-  (table) => [uniqueIndex('wallet_days_unique').on(table.walletId, table.day)],
+  (table) => [
+    // Une même date peut porter une journée de test et une journée de trade :
+    // un wallet peut être remis en test pendant qu'on le trade encore.
+    uniqueIndex('wallet_days_unique').on(table.walletId, table.day, table.phase),
+    index('wallet_days_phase_idx').on(table.walletId, table.phase),
+  ],
 )
 
 export const tokens = pgTable(
@@ -134,14 +157,33 @@ export const tokens = pgTable(
 
     /**
      * De quel lot vient ce token : 'screening' (échantillon historique choisi
-     * à la main) ou 'test' (relevé exhaustif d'une journée).
+     * à la main), 'test' (relevé exhaustif d'une journée) ou 'trade' (un
+     * trade réellement joué).
      *
-     * Les deux lots ne s'additionnent pas : l'échantillon de screening est
-     * biaisé par construction, seul le lot de test donne un résultat honnête.
+     * Les trois lots ne s'additionnent pas. Le screening est biaisé par
+     * construction — on y retient ce qui se remarque. Le test est exhaustif
+     * mais simulé : son résultat est ce que la stratégie *aurait* donné. Seul
+     * le lot de trade porte des montants réellement engagés.
      */
     phase: text('phase').notNull().default('screening'),
-    /** Journée de rattachement. Toujours renseignée en phase de test. */
+    /** Journée de rattachement. Toujours renseignée hors screening. */
     dayId: text('day_id').references(() => walletDays.id, { onDelete: 'cascade' }),
+
+    /**
+     * SOL réellement sorti du portefeuille pour entrer sur ce token.
+     * `null` hors phase active : le lot de test se calcule sur la mise
+     * théorique du wallet, pas sur un montant engagé.
+     */
+    entreeSol: doublePrecision('entree_sol'),
+    /**
+     * SOL réellement récupéré à la sortie, frais de réseau et slippage
+     * compris — c'est ce qui est rentré, pas ce qui aurait dû rentrer.
+     *
+     * Le couple entrée/sortie remplace entièrement la simulation : quand il
+     * est renseigné, `mise`, `frais` et `perteRug` du wallet ne servent plus.
+     * C'est le seul moyen d'avoir un PNL qui dise la vérité.
+     */
+    sortieSol: doublePrecision('sortie_sol'),
 
     source: text('source').notNull().default('manual'),
     createdAt: text('created_at').notNull(),

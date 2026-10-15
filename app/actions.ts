@@ -12,6 +12,7 @@ import * as walletsRepo from '@/lib/repo/wallets'
 import { toDayInputs } from '@/lib/repo/types'
 import type {
   CreateTokenInput,
+  DayPhase,
   Token,
   UpdateTokenPatch,
   UpdateWalletPatch,
@@ -170,10 +171,33 @@ export async function updateSolPriceAction(value: number | null): Promise<void> 
 }
 
 // ---------------------------------------------------------------------------
-// Phase de test
+// Journées : phase de test et phase active
 // ---------------------------------------------------------------------------
 
 export type ActionResult = { ok: true } | { ok: false; message: string }
+
+/**
+ * La phase dont relèvent les journées d'un wallet, ou `null` s'il n'en tient
+ * aucune.
+ *
+ * Deux statuts seulement relèvent jour après jour, et ils n'écrivent pas la
+ * même chose : le test note ce que le wallet lance, la phase active note ce
+ * qu'on a joué. Passer par ici évite qu'une journée de trade finisse dans le
+ * lot de test — ce qui mélangerait des montants réels à une simulation.
+ */
+function phaseJournaliere(status: WalletStatus): DayPhase | null {
+  if (status === 'test') return 'test'
+  if (status === 'trade') return 'trade'
+  return null
+}
+
+/** Le jour d'ouverture de la phase en cours, pour borner les saisies. */
+function debutDePhase(
+  wallet: { testStartedAt: string | null; tradeStartedAt: string | null },
+  phase: DayPhase,
+): string | null {
+  return phase === 'test' ? wallet.testStartedAt : wallet.tradeStartedAt
+}
 
 /**
  * Fait passer un wallet du screening à la phase de test.
@@ -262,9 +286,12 @@ export async function setWalletStatusAction(
 
   // Entrer en test pour la première fois ouvre la fenêtre d'observation.
   // Y revenir après coup la laisse telle quelle : les journées déjà relevées
-  // restent valables.
+  // restent valables. Même règle pour la phase active.
   if (status === 'test' && wallet.testStartedAt === null) {
     patch.testStartedAt = todayIso()
+  }
+  if (status === 'trade' && wallet.tradeStartedAt === null) {
+    patch.tradeStartedAt = todayIso()
   }
 
   await walletsRepo.updateWallet(id, patch)
@@ -299,6 +326,68 @@ export async function cancelTestAction(id: string): Promise<ActionResult> {
   return { ok: true }
 }
 
+// ---------------------------------------------------------------------------
+// Phase active
+// ---------------------------------------------------------------------------
+
+/**
+ * Fait passer un wallet validé en phase active.
+ *
+ * C'est le moment où l'on arrête de simuler : à partir d'ici, chaque trade
+ * saisi porte des montants réels, et le bilan de la phase cesse de dépendre
+ * de la mise théorique du wallet.
+ *
+ * Le passage par « validé » n'est pas une formalité : engager du SOL sur un
+ * wallet dont le test n'a rien conclu est précisément ce que l'entonnoir
+ * existe pour éviter. Pour les cas qu'on assume, `setWalletStatusAction`
+ * reste l'échappatoire.
+ */
+export async function startTradeAction(id: string): Promise<ActionResult> {
+  const wallet = await walletsRepo.getWallet(id)
+  if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
+
+  if (wallet.status === 'trade') return { ok: true }
+  if (wallet.status !== 'valide') {
+    return {
+      ok: false,
+      message: 'Seul un wallet validé passe en phase active. Concluez le test d’abord.',
+    }
+  }
+
+  await walletsRepo.updateWallet(id, {
+    status: 'trade',
+    // Rouvrir une phase active déjà ouverte garde sa date de départ : les
+    // journées déjà saisies restent dans la fenêtre.
+    ...(wallet.tradeStartedAt === null ? { tradeStartedAt: todayIso() } : {}),
+  })
+
+  refresh()
+  return { ok: true }
+}
+
+/**
+ * Sort un wallet de la phase active, sans rien effacer.
+ *
+ * Le wallet redevient « validé » : on ne trade plus dessus, mais les journées
+ * de trade et leurs montants restent — c'est l'historique du PNL réel, il n'a
+ * aucune raison de disparaître parce qu'on fait une pause.
+ */
+export async function stopTradeAction(id: string): Promise<ActionResult> {
+  const wallet = await walletsRepo.getWallet(id)
+  if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
+  if (wallet.status !== 'trade') {
+    return { ok: false, message: 'Ce wallet n’est pas en phase active.' }
+  }
+
+  await walletsRepo.updateWallet(id, { status: 'valide' })
+  refresh()
+  return { ok: true }
+}
+
+// ---------------------------------------------------------------------------
+// Saisie des journées
+// ---------------------------------------------------------------------------
+
 export type SaveDayResult =
   | { ok: true; day: WalletDay; tokensCrees: number }
   | { ok: false; message: string }
@@ -322,7 +411,22 @@ function normaliserLigne(ligne: CreateTokenInput): CreateTokenInput {
     delay: delay !== null && delay >= 0 ? delay : null,
     // Pris par défaut : seul un `false` explicite écarte un token.
     pris: ligne.pris !== false,
+    entreeSol: montantSol(ligne.entreeSol),
+    sortieSol: montantSol(ligne.sortieSol),
   }
+}
+
+/**
+ * Un montant en SOL, ou `null`.
+ *
+ * Un montant négatif n'existe pas : ni l'entrée ni la sortie ne peuvent être
+ * en dessous de zéro. Le signe du résultat vient de leur différence, pas des
+ * montants eux-mêmes — accepter un négatif ici donnerait un PNL doublement
+ * inversé sans rien signaler.
+ */
+function montantSol(value: string | number | null | undefined): number | null {
+  const lu = parseNumberFr(value)
+  return lu !== null && lu >= 0 ? lu : null
 }
 
 /**
@@ -341,18 +445,27 @@ export async function saveDayAction(input: {
 }): Promise<SaveDayResult> {
   const wallet = await walletsRepo.getWallet(input.walletId)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
-  if (wallet.status !== 'test') {
-    return { ok: false, message: 'Ce wallet n’est pas en phase de test.' }
+
+  const phase = phaseJournaliere(wallet.status)
+  if (phase === null) {
+    return { ok: false, message: 'Ce wallet ne relève pas de journées.' }
   }
 
   if (!isIsoDate(input.day)) {
     return { ok: false, message: 'Date de journée invalide.' }
   }
 
-  // Une journée hors de la fenêtre de test fausserait le décompte : ni avant
-  // le départ, ni dans le futur.
-  if (wallet.testStartedAt !== null && ecartEnJours(wallet.testStartedAt, input.day) < 0) {
-    return { ok: false, message: 'Cette journée précède le début du test.' }
+  // Une journée hors de la fenêtre de la phase fausserait le décompte : ni
+  // avant le départ, ni dans le futur.
+  const debut = debutDePhase(wallet, phase)
+  if (debut !== null && ecartEnJours(debut, input.day) < 0) {
+    return {
+      ok: false,
+      message:
+        phase === 'test'
+          ? 'Cette journée précède le début du test.'
+          : 'Cette journée précède le début de la phase active.',
+    }
   }
   if (ecartEnJours(todayIso(), input.day) > 0) {
     return { ok: false, message: 'Cette journée n’a pas encore eu lieu.' }
@@ -367,6 +480,7 @@ export async function saveDayAction(input: {
     walletId: input.walletId,
     day: input.day,
     state,
+    phase,
     tokens: lignes,
   })
 
@@ -397,24 +511,39 @@ export async function openDayAction(
 ): Promise<SaveDayResult> {
   const wallet = await walletsRepo.getWallet(walletId)
   if (!wallet) return { ok: false, message: 'Wallet introuvable.' }
-  if (wallet.status !== 'test') {
-    return { ok: false, message: 'Ce wallet n’est pas en phase de test.' }
+
+  const phase = phaseJournaliere(wallet.status)
+  if (phase === null) {
+    return { ok: false, message: 'Ce wallet ne relève pas de journées.' }
   }
   if (!isIsoDate(day)) return { ok: false, message: 'Date de journée invalide.' }
 
-  if (wallet.testStartedAt !== null && ecartEnJours(wallet.testStartedAt, day) < 0) {
-    return { ok: false, message: 'Cette journée précède le début du test.' }
+  const debut = debutDePhase(wallet, phase)
+  if (debut !== null && ecartEnJours(debut, day) < 0) {
+    return {
+      ok: false,
+      message:
+        phase === 'test'
+          ? 'Cette journée précède le début du test.'
+          : 'Cette journée précède le début de la phase active.',
+    }
   }
   if (ecartEnJours(todayIso(), day) > 0) {
     return { ok: false, message: 'Cette journée n’a pas encore eu lieu.' }
   }
 
-  const existante = await daysRepo.getDay(walletId, day)
+  const existante = await daysRepo.getDay(walletId, day, phase)
   if (existante) return { ok: true, day: existante, tokensCrees: 0 }
 
   // Le premier token la rendra active ; cocher « journée sans trade » la
   // rendra inactive. D'ici là elle est seulement ouverte.
-  const creee = await daysRepo.saveDay({ walletId, day, state: 'ouvert', tokens: [] })
+  const creee = await daysRepo.saveDay({
+    walletId,
+    day,
+    state: 'ouvert',
+    phase,
+    tokens: [],
+  })
   refresh()
   return { ok: true, day: creee, tokensCrees: 0 }
 }
@@ -429,10 +558,19 @@ export async function createDayTokenAction(
   walletId: string,
   dayId: string,
 ): Promise<Token> {
+  const wallet = await walletsRepo.getWallet(walletId)
+  if (!wallet) throw new Error('Wallet introuvable.')
+
+  // Le lot du token suit la journée, pas le statut du wallet : remettre un
+  // wallet en test ne doit pas faire basculer ses journées de trade dans le
+  // lot simulé.
+  const jour = wallet.days.find((autre) => autre.id === dayId)
+  if (!jour) throw new Error('Journée introuvable.')
+
   const [token] = await tokensRepo.createTokens(
     walletId,
     [{}],
-    { phase: 'test', dayId },
+    { phase: jour.phase, dayId },
   )
   if (!token) throw new Error('Le token n’a pas pu être créé.')
 

@@ -42,6 +42,7 @@ const COLONNES: readonly { statut: WalletStatus; titre: string }[] = [
   { statut: 'screening', titre: 'Screening' },
   { statut: 'test', titre: 'En test' },
   { statut: 'valide', titre: 'Validés' },
+  { statut: 'trade', titre: 'Actifs' },
   { statut: 'rejete', titre: 'Écartés' },
 ]
 
@@ -50,6 +51,7 @@ const POINT_COLONNE: Record<WalletStatus, string> = {
   screening: 'bg-gray',
   test: 'bg-blue',
   valide: 'bg-green',
+  trade: 'bg-orange',
   rejete: 'bg-ink-3',
 }
 

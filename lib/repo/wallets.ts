@@ -113,6 +113,7 @@ export async function createWallet(
         tagOverride: null,
         status: 'screening',
         testStartedAt: null,
+        tradeStartedAt: null,
         mise: defaults.mise,
         objectif: defaults.objectif,
         perteRug: defaults.perteRug,
@@ -162,6 +163,9 @@ export async function updateWallet(
   if (patch.tagOverride !== undefined) values.tagOverride = patch.tagOverride
   if (patch.status !== undefined) values.status = patch.status
   if (patch.testStartedAt !== undefined) values.testStartedAt = patch.testStartedAt
+  if (patch.tradeStartedAt !== undefined) {
+    values.tradeStartedAt = patch.tradeStartedAt
+  }
 
   const s = patch.strategy
   if (s) {

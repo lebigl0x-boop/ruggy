@@ -5,6 +5,9 @@ export const STATUS_LABELS: Record<WalletStatus, string> = {
   screening: 'Screening',
   test: 'En test',
   valide: 'Validé',
+  // « Actif » à l'écran, 'trade' en base : au niveau d'une journée, « actif »
+  // veut déjà dire « il a tradé ce jour-là ».
+  trade: 'Actif',
   rejete: 'Écarté',
 }
 
@@ -17,6 +20,7 @@ const POINTS: Record<WalletStatus, string> = {
   screening: 'bg-gray',
   test: 'bg-blue',
   valide: 'bg-green',
+  trade: 'bg-orange',
   rejete: 'bg-ink-3',
 }
 

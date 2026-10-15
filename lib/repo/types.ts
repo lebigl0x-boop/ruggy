@@ -15,12 +15,24 @@ export type Source = 'manual' | 'helius'
  *
  * 'screening' : échantillon historique, on cherche à savoir si ça vaut le coup
  * de le suivre. 'test' : relevé exhaustif jour après jour. Puis 'valide' ou
- * 'rejete' une fois le test conclu.
+ * 'rejete' une fois le test conclu. 'trade' : le wallet validé est passé en
+ * phase active — on engage du SOL dessus, et les chiffres enregistrés sont
+ * des montants réels.
+ *
+ * 'trade' est stocké tel quel mais s'affiche « Actif » : au niveau d'une
+ * journée, `DayState` emploie déjà 'actif' pour « il a tradé ce jour-là », et
+ * deux sens pour le même mot en base rendrait le code illisible.
  */
-export type WalletStatus = 'screening' | 'test' | 'valide' | 'rejete'
+export type WalletStatus = 'screening' | 'test' | 'valide' | 'trade' | 'rejete'
 
-/** Le lot auquel appartient un token. Les deux ne s'additionnent jamais. */
-export type TokenPhase = 'screening' | 'test'
+/** Le lot auquel appartient un token. Les trois ne s'additionnent jamais. */
+export type TokenPhase = 'screening' | 'test' | 'trade'
+
+/**
+ * Les phases qui tiennent un relevé jour par jour. Le screening n'en est pas :
+ * son échantillon est choisi dans le passé, pas observé au fil des jours.
+ */
+export type DayPhase = 'test' | 'trade'
 
 export type Token = {
   id: string
@@ -38,18 +50,27 @@ export type Token = {
    */
   pris: boolean
   phase: TokenPhase
-  /** Journée de rattachement. Toujours renseignée en phase de test. */
+  /** Journée de rattachement. Toujours renseignée hors screening. */
   dayId: string | null
+  /**
+   * SOL réellement engagé. `null` hors phase active — et `null` aussi en
+   * phase active tant que le trade n'a pas été chiffré.
+   */
+  entreeSol: number | null
+  /** SOL réellement récupéré à la sortie. */
+  sortieSol: number | null
   source: Source
 }
 
-/** Une journée observée pendant la phase de test. */
+/** Une journée relevée, en phase de test ou en phase active. */
 export type WalletDay = {
   id: string
   walletId: string
   /** AAAA-MM-JJ */
   day: string
   state: DayState
+  /** À quelle phase appartient la journée. */
+  phase: DayPhase
   note: string
   /** Moment de la saisie. */
   createdAt: string
@@ -67,6 +88,8 @@ export type Wallet = {
   status: WalletStatus
   /** Premier jour de la phase de test. `null` tant qu'elle n'a pas commencé. */
   testStartedAt: string | null
+  /** Premier jour de la phase active. `null` tant qu'elle n'a pas commencé. */
+  tradeStartedAt: string | null
   strategy: Strategy
   source: Source
   createdAt: string
@@ -74,9 +97,9 @@ export type Wallet = {
 }
 
 export type WalletWithTokens = Wallet & {
-  /** Les deux lots mélangés, dans l'ordre d'affichage. */
+  /** Les trois lots mélangés, dans l'ordre d'affichage. */
   tokens: Token[]
-  /** Journées de test, de la plus ancienne à la plus récente. */
+  /** Toutes les journées relevées, de la plus ancienne à la plus récente. */
   days: WalletDay[]
 }
 
@@ -94,6 +117,8 @@ export function toTokenInput(token: Token): TokenInput {
     perteRug: token.perteRug,
     delay: token.delay,
     pris: token.pris,
+    entreeSol: token.entreeSol,
+    sortieSol: token.sortieSol,
   }
 }
 
@@ -107,23 +132,42 @@ export function testTokens(wallet: WalletWithTokens): Token[] {
   return wallet.tokens.filter((token) => token.phase === 'test')
 }
 
+/** Les trades joués pendant la phase active. */
+export function tradeTokens(wallet: WalletWithTokens): Token[] {
+  return wallet.tokens.filter((token) => token.phase === 'trade')
+}
+
+/** Les journées d'une phase, de la plus ancienne à la plus récente. */
+export function daysOfPhase(
+  wallet: WalletWithTokens,
+  phase: DayPhase,
+): WalletDay[] {
+  return wallet.days.filter((jour) => jour.phase === phase)
+}
+
 /**
- * Assemble les journées de test et leurs tokens.
+ * Assemble les journées d'une phase et leurs tokens.
  *
  * Une journée sans trade garde sa place avec une liste vide : c'est tout
  * l'intérêt de l'avoir enregistrée.
+ *
+ * Le filtrage par phase est ce qui garantit qu'un relevé simulé et un relevé
+ * réel ne se retrouvent jamais dans le même bilan.
  */
-export function toDayInputs(wallet: WalletWithTokens): DayInput[] {
+export function toDayInputs(
+  wallet: WalletWithTokens,
+  phase: DayPhase = 'test',
+): DayInput[] {
   const parJour = new Map<string, TokenInput[]>()
 
   for (const token of wallet.tokens) {
-    if (token.phase !== 'test' || token.dayId === null) continue
+    if (token.phase !== phase || token.dayId === null) continue
     const liste = parJour.get(token.dayId)
     if (liste) liste.push(toTokenInput(token))
     else parJour.set(token.dayId, [toTokenInput(token)])
   }
 
-  return wallet.days.map((jour) => ({
+  return daysOfPhase(wallet, phase).map((jour) => ({
     day: jour.day,
     state: jour.state,
     tokens: parJour.get(jour.id) ?? [],
@@ -144,6 +188,7 @@ export type UpdateWalletPatch = Partial<{
   tagOverride: TagOverride | null
   status: WalletStatus
   testStartedAt: string | null
+  tradeStartedAt: string | null
   strategy: Partial<Strategy>
 }>
 
@@ -154,6 +199,9 @@ export type UpdateTokenPatch = Partial<{
   perteRug: number | null
   delay: number | null
   pris: boolean
+  /** Montants réels d'un trade. N'ont de sens qu'en phase active. */
+  entreeSol: number | null
+  sortieSol: number | null
 }>
 
 /** Données d'un token créé en lot (saisie rapide, ou import Helius plus tard). */
@@ -165,13 +213,18 @@ export type CreateTokenInput = {
   delay?: number | null
   /** Pris par défaut : on décoche ce que le filtre aurait écarté. */
   pris?: boolean
+  /** Montants réels d'un trade. Laissés vides en screening et en test. */
+  entreeSol?: number | null
+  sortieSol?: number | null
 }
 
-/** Contenu d'une journée de test enregistrée d'un coup. */
+/** Contenu d'une journée enregistrée d'un coup. */
 export type SaveDayInput = {
   walletId: string
   /** AAAA-MM-JJ */
   day: string
   state: DayState
+  /** Phase de la journée. 'test' par défaut. */
+  phase?: DayPhase
   tokens: readonly CreateTokenInput[]
 }

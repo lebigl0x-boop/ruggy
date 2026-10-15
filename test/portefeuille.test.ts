@@ -40,6 +40,8 @@ function token(
     pris,
     phase: dayId === null ? 'screening' : 'test',
     dayId,
+    entreeSol: null,
+    sortieSol: null,
     source: 'manual',
   }
 }
@@ -76,6 +78,7 @@ function wallet(
     tagOverride: null,
     status,
     testStartedAt: jours.length > 0 ? jours[0]!.day : null,
+    tradeStartedAt: null,
     strategy: DEFAULT_STRATEGY,
     source: 'manual',
     createdAt: '',
@@ -86,6 +89,7 @@ function wallet(
       walletId: label,
       day: jour.day,
       state: 'actif' as const,
+      phase: 'test' as const,
       note: '',
       createdAt: '',
       updatedAt: '',
@@ -125,7 +129,13 @@ describe('computePortefeuille — agrégation', () => {
 
   it('compte les wallets par statut', () => {
     expect(vue.total).toBe(3)
-    expect(vue.parStatut).toEqual({ screening: 1, test: 2, valide: 0, rejete: 0 })
+    expect(vue.parStatut).toEqual({
+      screening: 1,
+      test: 2,
+      valide: 0,
+      trade: 0,
+      rejete: 0,
+    })
   })
 
   it('n’additionne pas le screening au test', () => {
@@ -229,6 +239,8 @@ function ligne(
     nPris: 0,
     taux: 0,
     seuilAnalyse: 10,
+    netReelSol: 0,
+    joursTrades: 0,
     joursObserves: 0,
     joursMinimum: 4,
     joursRestants: 4,

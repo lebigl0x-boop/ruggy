@@ -9,7 +9,7 @@ import { listerJours } from '../jours'
 import { JOURS_MINIMUM_TEST, type DayState } from '../test-report'
 import { mapWallet, mapWalletDay, toDayState } from './mappers'
 import { createTokens } from './tokens'
-import type { SaveDayInput, Wallet, WalletDay } from './types'
+import type { DayPhase, SaveDayInput, Wallet, WalletDay } from './types'
 
 function now(): string {
   return new Date().toISOString()
@@ -25,14 +25,28 @@ export async function listDays(walletId: string): Promise<WalletDay[]> {
   return rows.map(mapWalletDay)
 }
 
+/**
+ * Une journée précise d'une phase précise.
+ *
+ * La phase fait partie de la clé : une même date peut porter une journée de
+ * test et une journée de trade, et les confondre reviendrait à écraser un
+ * relevé simulé avec des montants réels, ou l'inverse.
+ */
 export async function getDay(
   walletId: string,
   day: string,
+  phase: DayPhase = 'test',
 ): Promise<WalletDay | null> {
   const [row] = await db
     .select()
     .from(walletDays)
-    .where(and(eq(walletDays.walletId, walletId), eq(walletDays.day, day)))
+    .where(
+      and(
+        eq(walletDays.walletId, walletId),
+        eq(walletDays.day, day),
+        eq(walletDays.phase, phase),
+      ),
+    )
     .limit(1)
   return row ? mapWalletDay(row) : null
 }
@@ -59,6 +73,7 @@ export async function listWalletsEnTest(): Promise<Wallet[]> {
  */
 export async function saveDay(input: SaveDayInput): Promise<WalletDay> {
   const timestamp = now()
+  const phase: DayPhase = input.phase ?? 'test'
   const tokensAEcrire = input.state === 'inactif' ? [] : input.tokens
 
   await db.transaction(async (tx) => {
@@ -66,7 +81,11 @@ export async function saveDay(input: SaveDayInput): Promise<WalletDay> {
       .select()
       .from(walletDays)
       .where(
-        and(eq(walletDays.walletId, input.walletId), eq(walletDays.day, input.day)),
+        and(
+          eq(walletDays.walletId, input.walletId),
+          eq(walletDays.day, input.day),
+          eq(walletDays.phase, phase),
+        ),
       )
       .limit(1)
 
@@ -87,6 +106,7 @@ export async function saveDay(input: SaveDayInput): Promise<WalletDay> {
         walletId: input.walletId,
         day: input.day,
         state: input.state,
+        phase,
         note: '',
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -94,11 +114,11 @@ export async function saveDay(input: SaveDayInput): Promise<WalletDay> {
     }
 
     if (tokensAEcrire.length > 0) {
-      await createTokens(input.walletId, tokensAEcrire, { phase: 'test', dayId }, tx)
+      await createTokens(input.walletId, tokensAEcrire, { phase, dayId }, tx)
     }
   })
 
-  const enregistre = await getDay(input.walletId, input.day)
+  const enregistre = await getDay(input.walletId, input.day, phase)
   if (!enregistre) throw new Error('La journée n’a pas pu être enregistrée.')
   return enregistre
 }
@@ -179,7 +199,13 @@ export const listFileDuMatin = cache(async function listFileDuMatin(
   const lignes = await db
     .select({ wallet: wallets, day: walletDays.day, state: walletDays.state })
     .from(wallets)
-    .leftJoin(walletDays, eq(walletDays.walletId, wallets.id))
+    // La jointure ne retient que les journées de test : un wallet remis en
+    // test après avoir été tradé garde ses journées de trade, et les compter
+    // ici ferait passer pour relevées des dates qui ne le sont pas.
+    .leftJoin(
+      walletDays,
+      and(eq(walletDays.walletId, wallets.id), eq(walletDays.phase, 'test')),
+    )
     .where(eq(wallets.status, 'test'))
     .orderBy(asc(wallets.testStartedAt), asc(wallets.label))
 

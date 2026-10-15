@@ -33,7 +33,7 @@ export default async function WalletPage({
           debut: wallet.testStartedAt,
           jusqua: jourPrecedent(aujourdhui),
           saisis: wallet.days
-            .filter((jour) => jour.state !== 'ouvert')
+            .filter((jour) => jour.phase === 'test' && jour.state !== 'ouvert')
             .map((jour) => jour.day),
         }).length
       : 0

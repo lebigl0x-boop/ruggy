@@ -4,6 +4,7 @@
  */
 import { computeWalletReport, type Tag } from './compute'
 import { computeTestReport } from './test-report'
+import { computeTradeReport } from './trade-report'
 import type {
   GlobalSettings,
   WalletStatus,
@@ -25,7 +26,15 @@ export type WalletSummary = {
   /** Nombre de tokens notés dans le lot mis en avant. */
   n: number
   seuilAnalyse: number
+  /**
+   * Net mis en avant, en SOL : le résultat **réel** pour un wallet en phase
+   * active, le net du lot de test sinon.
+   */
   netSol: number
+  /** `netSol` est de l'argent compté et non une simulation. */
+  netReel: boolean
+  /** Trades pris dont les montants manquent : le net réel est incomplet. */
+  tradesIncomplets: number
 
   /** Journées de test observées. Zéro tant que la phase 2 n'a pas commencé. */
   joursObserves: number
@@ -55,6 +64,14 @@ export function summarize(
   // screening est choisi à la main, le relevé de test est exhaustif.
   const enAvant = wallet.status === 'screening' ? screening : test.report
 
+  // En phase active, c'est le réel qui fait foi — et lui seul. Afficher le
+  // net simulé d'un wallet sur lequel on engage du SOL serait montrer la
+  // prévision à la place du résultat.
+  const enTrade = wallet.status === 'trade'
+  const trade = enTrade
+    ? computeTradeReport(toDayInputs(wallet, 'trade'), wallet.strategy, options)
+    : null
+
   return {
     id: wallet.id,
     label: wallet.label,
@@ -64,7 +81,9 @@ export function summarize(
     tag: enAvant.effectiveTag,
     n: enAvant.n,
     seuilAnalyse: enAvant.seuilAnalyse,
-    netSol: enAvant.netSol,
+    netSol: trade !== null ? trade.pnlReelSol : enAvant.netSol,
+    netReel: trade !== null,
+    tradesIncomplets: trade?.tradesIncomplets ?? 0,
     joursObserves: test.joursObserves,
     joursMinimum: test.joursMinimum,
     joursRestants: test.joursRestants,
@@ -78,7 +97,14 @@ export function summarize(
  * disent ses chiffres : filtrer sur le premier et afficher le second évite
  * que « En cours » veuille dire deux choses à la fois.
  */
-export const SEGMENTS = ['tous', 'screening', 'test', 'valides', 'ecartes'] as const
+export const SEGMENTS = [
+  'tous',
+  'screening',
+  'test',
+  'valides',
+  'actifs',
+  'ecartes',
+] as const
 export type Segment = (typeof SEGMENTS)[number]
 
 export const SEGMENT_LABELS: Record<Segment, string> = {
@@ -86,6 +112,7 @@ export const SEGMENT_LABELS: Record<Segment, string> = {
   screening: 'Screening',
   test: 'Test',
   valides: 'Validés',
+  actifs: 'Actifs',
   ecartes: 'Écartés',
 }
 
@@ -93,6 +120,7 @@ const SEGMENT_STATUS: Record<Exclude<Segment, 'tous'>, WalletStatus> = {
   screening: 'screening',
   test: 'test',
   valides: 'valide',
+  actifs: 'trade',
   ecartes: 'rejete',
 }
 
