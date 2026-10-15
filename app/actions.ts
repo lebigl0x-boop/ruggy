@@ -19,11 +19,13 @@ import type {
   WalletStatus,
 } from '@/lib/repo/types'
 import { MAX_TOKENS_PAR_JOUR } from '@/lib/saisie'
+import { resolveTokenMeta, type TokenMeta } from '@/lib/token-meta'
 import { computeTestReport, type DayState } from '@/lib/test-report'
 import {
   clampStrategyField,
   hasBlockingIssue,
   isIsoDate,
+  isLikelySolanaAddress,
   isTagOverride,
   parseNumberFr,
   parsePerteToken,
@@ -140,6 +142,25 @@ export async function updateTokenAction(
 export async function deleteTokenAction(id: string): Promise<void> {
   await tokensRepo.deleteToken(id)
   refresh()
+}
+
+/**
+ * Cherche le nom d'un token à partir de son adresse.
+ *
+ * Elle n'écrit rien : c'est une consultation, et c'est l'interface qui décide
+ * quoi faire du résultat — poser le nom sur la ligne du tableau, ou garder le
+ * CA raccourci si la recherche n'a rien donné. Cela la rend utilisable aussi
+ * bien sur un token déjà en base que sur une ligne du relevé du matin qui
+ * n'existe encore qu'en mémoire.
+ *
+ * Le filtre sur la forme de l'adresse n'est pas cosmétique : une action est
+ * joignable par POST direct, et sans lui n'importe quelle chaîne partirait
+ * brûler le quota Helius.
+ */
+export async function resolveTokenMetaAction(mint: string): Promise<TokenMeta | null> {
+  const trimmed = mint.trim()
+  if (!isLikelySolanaAddress(trimmed)) return null
+  return resolveTokenMeta(trimmed)
 }
 
 export async function updateSolPriceAction(value: number | null): Promise<void> {
@@ -295,6 +316,7 @@ function normaliserLigne(ligne: CreateTokenInput): CreateTokenInput {
 
   return {
     name: nom === '' ? null : nom,
+    mint: ligne.mint ?? null,
     gain: parseNumberFr(ligne.gain),
     perteRug: parsePerteToken(ligne.perteRug),
     delay: delay !== null && delay >= 0 ? delay : null,

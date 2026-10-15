@@ -5,7 +5,8 @@ import { formatPercent, formatPercentExact, formatSol } from '@/lib/format'
 import type { Token, UpdateTokenPatch } from '@/lib/repo/types'
 import { parsePerteToken } from '@/lib/validation'
 import { cn } from '../ui/cn'
-import { NumberField, TextField } from '../ui/field'
+import { ChampNomToken } from '../token/champ-nom-token'
+import { NumberField } from '../ui/field'
 import { CloseIcon, PlusIcon } from '../ui/icons'
 
 export function TokenTable({
@@ -114,12 +115,11 @@ function TokenLigne({
         <span className="w-5 shrink-0 text-[13px] text-ink-3 tabular-nums md:hidden">
           {index + 1}
         </span>
-        <TextField
-          ariaLabel={`Nom du token ${index + 1}`}
-          value={token.name ?? ''}
-          onChange={(value) => onChange(token.id, { name: value.trim() === '' ? null : value })}
-          placeholder={`Token ${index + 1}`}
-          className="text-[15px]"
+        <ChampNomToken
+          numero={index + 1}
+          name={token.name}
+          mint={token.mint}
+          onChange={(patch) => onChange(token.id, patch)}
         />
         {token.source === 'helius' ? (
           <span className="shrink-0 rounded bg-fill px-1.5 py-0.5 text-[11px] text-ink-2">

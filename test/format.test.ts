@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   GMGN_URL,
+  PADRE_URL,
   SOLSCAN_URL,
   formatDateFr,
   formatEur,
@@ -100,6 +101,18 @@ describe('liens externes', () => {
   it('pointe vers Solscan et GMGN', () => {
     expect(SOLSCAN_URL('ABC')).toBe('https://solscan.io/account/ABC')
     expect(GMGN_URL('ABC')).toBe('https://gmgn.ai/sol/address/ABC')
+  })
+
+  it('construit la page de trade Padre depuis la seule adresse du token', () => {
+    expect(PADRE_URL('DW2EsD7bUL13VFQHcZ2XUJnQm7en6feLEW4f4Ka2pNLy')).toBe(
+      'https://trade.padre.gg/trade/solana/DW2EsD7bUL13VFQHcZ2XUJnQm7en6feLEW4f4Ka2pNLy',
+    )
+  })
+
+  it('échappe ce qu’on lui donne : un CA vient d’un collage, pas d’un contrat', () => {
+    expect(PADRE_URL('../evil?x=1')).toBe(
+      'https://trade.padre.gg/trade/solana/..%2Fevil%3Fx%3D1',
+    )
   })
 })
 

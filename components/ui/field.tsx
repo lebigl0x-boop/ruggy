@@ -90,6 +90,7 @@ export function TextField({
   ariaLabel,
   dataChamp,
   dataLigne,
+  sync = 0,
 }: {
   value: string
   onChange: (value: string) => void
@@ -99,13 +100,26 @@ export function TextField({
   /** Repères de navigation au clavier, voir `NumberField`. */
   dataChamp?: string
   dataLigne?: string
+  /**
+   * Compteur à incrémenter pour imposer la reprise de `value` alors même que
+   * le champ a le focus. Sert au cas où une valeur arrive du serveur pendant
+   * la saisie — la résolution du nom d'un token, par exemple.
+   */
+  sync?: number
 }) {
   const [texte, setTexte] = useState(value)
   const actif = useRef(false)
+  const dernierSync = useRef(sync)
 
   useEffect(() => {
-    if (!actif.current) setTexte(value)
-  }, [value])
+    // Hors saisie, le champ suit sa source. Pendant la saisie il ne la suit
+    // pas — une écriture arrivée en retard écraserait les touches en cours —
+    // sauf si l'appelant a bougé `sync` : sa façon de dire « celle-là, prends-la
+    // quand même ».
+    if (actif.current && dernierSync.current === sync) return
+    dernierSync.current = sync
+    setTexte(value)
+  }, [value, sync])
 
   return (
     <input

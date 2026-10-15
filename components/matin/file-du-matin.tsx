@@ -184,6 +184,7 @@ export function FileDuMatin({
       state: inactif ? 'inactif' : 'actif',
       tokens: retenues.map((ligne) => ({
         name: ligne.name,
+        mint: ligne.mint,
         gain: ligne.gain,
         perteRug: ligne.perteRug,
         delay: ligne.delay,
@@ -766,6 +767,7 @@ function CarteJournee({
       {
         cle: nouvelleCle(),
         name: null,
+        mint: null,
         gain: null,
         perteRug: null,
         delay: null,

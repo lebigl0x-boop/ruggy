@@ -54,7 +54,10 @@ export function lireBrouillon(cle: string): Brouillon | null {
     const { lignes } = lu as Record<string, unknown>
     if (!Array.isArray(lignes) || !lignes.every(estLigne)) return null
 
-    return { lignes }
+    // Les brouillons écrits avant que le champ « Nom » n'accepte une adresse
+    // n'ont pas de `mint` : sans ce rattrapage il vaudrait `undefined`, et la
+    // ligne afficherait un lien Padre construit sur du vide.
+    return { lignes: lignes.map((ligne) => ({ ...ligne, mint: ligne.mint ?? null })) }
   } catch {
     return null
   }

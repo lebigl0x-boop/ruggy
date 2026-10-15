@@ -4,7 +4,7 @@
  * On ne teste ici que ce que la couche repository ne peut pas dire toute
  * seule : les transitions d'état et leurs conditions.
  */
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolve } from 'node:path'
 
 process.env.RUGGERS_DB_MEMOIRE = '1'
@@ -15,7 +15,7 @@ const { tokens, walletDays, wallets } = await import('@/lib/db/schema')
 const { ensureSettingsRow } = await import('@/lib/db/seed')
 const walletsRepo = await import('@/lib/repo/wallets')
 const daysRepo = await import('@/lib/repo/days')
-const { cancelTestAction } = await import('@/app/actions')
+const { cancelTestAction, resolveTokenMetaAction } = await import('@/app/actions')
 
 const ADRESSE = '11111111111111111111111111111111'
 
@@ -86,5 +86,39 @@ describe('cancelTestAction', () => {
 
   it('refuse un wallet introuvable', async () => {
     expect((await cancelTestAction('inexistant')).ok).toBe(false)
+  })
+})
+
+describe('resolveTokenMetaAction', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('refuse ce qui n’a pas la forme d’une adresse, sans sortir sur le réseau', async () => {
+    // Une action est joignable par POST direct : sans ce filtre, n'importe
+    // quelle chaîne partirait brûler le quota Helius.
+    const appels = vi.fn()
+    vi.stubGlobal('fetch', appels)
+
+    expect(await resolveTokenMetaAction('BONK')).toBeNull()
+    expect(await resolveTokenMetaAction('')).toBeNull()
+    expect(await resolveTokenMetaAction('0'.repeat(200))).toBeNull()
+    expect(appels).not.toHaveBeenCalled()
+  })
+
+  it('accepte une adresse entourée d’espaces : un collage en traîne souvent', async () => {
+    const corps = { result: { content: { metadata: { name: 'Ruggy' } } } }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => corps })),
+    )
+    process.env.HELIUS_API_KEY = 'cle-de-test'
+
+    const meta = await resolveTokenMetaAction(
+      '  DW2EsD7bUL13VFQHcZ2XUJnQm7en6feLEW4f4Ka2pNLy\n',
+    )
+    expect(meta?.name).toBe('Ruggy')
+
+    delete process.env.HELIUS_API_KEY
   })
 })

@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:setup": "tsx --env-file-if-exists=.env.local scripts/db-setup.ts",
-    "db:reprise": "tsx --env-file-if-exists=.env.local scripts/sqlite-vers-postgres.ts"
+    "db:reprise": "tsx --env-file-if-exists=.env.local scripts/sqlite-vers-postgres.ts",
+    "db:noms": "tsx --env-file-if-exists=.env.local scripts/retrouver-noms-tokens.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

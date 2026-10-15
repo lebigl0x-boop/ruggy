@@ -236,6 +236,7 @@ function LigneJournee({
     journee?.tokens.map((token) => ({
       cle: token.id,
       name: token.name,
+      mint: token.mint,
       gain: token.gain,
       perteRug: token.perteRug,
       delay: token.delay,

@@ -6,7 +6,8 @@ import type { ReportRow, Strategy } from '@/lib/compute'
 import { formatPercent, formatPercentExact, formatSol } from '@/lib/format'
 import { parsePerteToken } from '@/lib/validation'
 import { cn } from '../ui/cn'
-import { NumberField, TextField } from '../ui/field'
+import { ChampNomToken } from '../token/champ-nom-token'
+import { NumberField } from '../ui/field'
 import { CheckIcon, CloseIcon, PlusIcon } from '../ui/icons'
 
 /**
@@ -23,6 +24,8 @@ export type LigneJour = {
   /** Clé stable d'affichage : l'identifiant du token, ou une clé locale. */
   cle: string
   name: string | null
+  /** Adresse du token, quand elle a été collée dans le champ « Nom ». */
+  mint: string | null
   gain: number | null
   perteRug: number | null
   delay: number | null
@@ -190,16 +193,13 @@ function Ligne({
         </span>
 
         <span className="min-w-0 flex-1 md:order-2">
-          <TextField
-            ariaLabel={`Nom du token ${numero}`}
+          <ChampNomToken
+            numero={numero}
             dataChamp="nom"
             dataLigne={ligne.cle}
-            value={ligne.name ?? ''}
-            onChange={(value) =>
-              onChange(ligne.cle, { name: value.trim() === '' ? null : value })
-            }
-            placeholder={`Token ${numero}`}
-            className="text-[15px]"
+            name={ligne.name}
+            mint={ligne.mint}
+            onChange={(patch) => onChange(ligne.cle, patch)}
           />
         </span>
 

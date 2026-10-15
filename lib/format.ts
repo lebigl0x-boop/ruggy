@@ -109,3 +109,14 @@ export const SOLSCAN_URL = (address: string) =>
 
 export const GMGN_URL = (address: string) =>
   `https://gmgn.ai/sol/address/${encodeURIComponent(address)}`
+
+/**
+ * La page de trade Padre d'un token, construite depuis son adresse.
+ *
+ * Padre est une application monopage : son HTML est le même pour tous les
+ * tokens et ne contient ni le nom ni même l'adresse. Le lien se fabrique donc
+ * à l'aveugle, et c'est suffisant — il n'a besoin que du CA. Le nom, lui,
+ * vient d'ailleurs (voir `lib/token-meta.ts`).
+ */
+export const PADRE_URL = (mint: string) =>
+  `https://trade.padre.gg/trade/solana/${encodeURIComponent(mint)}`
