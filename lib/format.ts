@@ -10,66 +10,51 @@ const nf = (min: number, max: number) =>
   })
 
 /** Espace insécable fine, pour coller l'unité au nombre sans la détacher. */
-const NBSP = ' '
-
-/** Un résultat en SOL, signé : « +0,140 SOL », « −0,093 SOL ». */
-export function formatSol(value: number, options: { sign?: boolean } = {}): string {
-  const withSign = options.sign ?? true
-  const rounded = Math.abs(value) < 5e-4 ? 0 : value
-  const body = nf(3, 3).format(Math.abs(rounded))
-  const prefix = !withSign ? '' : rounded > 0 ? '+' : rounded < 0 ? '−' : ''
-  return `${prefix}${body}${NBSP}SOL`
-}
-
-/** Un pourcentage : « 50 % », « −30 % ». */
-export function formatPercent(
-  value: number,
-  options: { decimals?: number; sign?: boolean } = {},
-): string {
-  const decimals = options.decimals ?? 0
-  const withSign = options.sign ?? false
-  const body = nf(decimals, decimals).format(Math.abs(value))
-  const prefix = !withSign ? (value < 0 ? '−' : '') : value > 0 ? '+' : value < 0 ? '−' : ''
-  return `${prefix}${body}${NBSP}%`
-}
+const NBSP = ' '
 
 /**
- * Un pourcentage affiché au plus juste : les décimales n'apparaissent que si
- * elles existent. « −90 % », mais « −40,5 % » quand c'est ce qui a été saisi.
+ * Un résultat en SOL, signé : « +0,142 SOL », « −0,058 SOL ».
+ *
+ * Les montants sous le demi-millième s'affichent à zéro, sans signe : un
+ * « +0,000 » vert ferait croire à un gain là où il n'y a rien.
  */
-export function formatPercentExact(
-  value: number,
-  options: { sign?: boolean } = {},
+export function formatSol(valeur: number, options: { signe?: boolean } = {}): string {
+  const avecSigne = options.signe ?? true
+  const arrondi = Math.abs(valeur) < 5e-4 ? 0 : valeur
+  const corps = nf(3, 3).format(Math.abs(arrondi))
+  const prefixe = !avecSigne ? '' : arrondi > 0 ? '+' : arrondi < 0 ? '−' : ''
+  return `${prefixe}${corps}${NBSP}SOL`
+}
+
+/** Un pourcentage : « 60 % », « −12,5 % ». */
+export function formatPct(
+  valeur: number,
+  options: { decimales?: number; signe?: boolean } = {},
 ): string {
-  const withSign = options.sign ?? false
-  const body = nf(0, 2).format(Math.abs(value))
-  const prefix = !withSign ? (value < 0 ? '−' : '') : value > 0 ? '+' : value < 0 ? '−' : ''
-  return `${prefix}${body}${NBSP}%`
-}
-
-/** Un montant en euros : « 19,40 € ». */
-export function formatEur(value: number): string {
-  const prefix = value > 0 ? '+' : value < 0 ? '−' : ''
-  return `${prefix}${nf(2, 2).format(Math.abs(value))}${NBSP}€`
-}
-
-/** Une durée en minutes : « 12 min », « 1 h 30 ». */
-export function formatMinutes(value: number): string {
-  if (value < 60) return `${nf(0, 1).format(value)}${NBSP}min`
-  const heures = Math.floor(value / 60)
-  const minutes = Math.round(value % 60)
-  return minutes === 0 ? `${heures}${NBSP}h` : `${heures}${NBSP}h${NBSP}${minutes}`
+  const decimales = options.decimales ?? 0
+  const avecSigne = options.signe ?? false
+  const corps = nf(decimales, decimales).format(Math.abs(valeur))
+  const prefixe = !avecSigne
+    ? valeur < 0
+      ? '−'
+      : ''
+    : valeur > 0
+      ? '+'
+      : valeur < 0
+        ? '−'
+        : ''
+  return `${prefixe}${corps}${NBSP}%`
 }
 
 /** Adresse raccourcie : les 4 premiers et 4 derniers caractères. */
-export function shortAddress(address: string): string {
-  const trimmed = address.trim()
-  if (trimmed.length <= 11) return trimmed
-  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`
+export function adresseCourte(adresse: string): string {
+  const propre = adresse.trim()
+  if (propre.length <= 11) return propre
+  return `${propre.slice(0, 4)}…${propre.slice(-4)}`
 }
 
 /** Date courte : « 5 oct. 2026 ». */
-export function formatDateFr(iso: string): string {
+export function formatDate(iso: string): string {
   const date = new Date(`${iso}T00:00:00`)
   if (Number.isNaN(date.getTime())) return iso
   return new Intl.DateTimeFormat('fr-FR', {
@@ -80,7 +65,7 @@ export function formatDateFr(iso: string): string {
 }
 
 /** Jour court, avec son nom : « lun. 5 oct. ». */
-export function formatDayFr(iso: string): string {
+export function formatJour(iso: string): string {
   const date = new Date(`${iso}T00:00:00`)
   if (Number.isNaN(date.getTime())) return iso
   return new Intl.DateTimeFormat('fr-FR', {
@@ -92,31 +77,28 @@ export function formatDayFr(iso: string): string {
 
 /** Date du jour au format AAAA-MM-JJ, dans le fuseau local. */
 export function todayIso(): string {
-  const now = new Date()
-  const mois = String(now.getMonth() + 1).padStart(2, '0')
-  const jour = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${mois}-${jour}`
+  const maintenant = new Date()
+  const mois = String(maintenant.getMonth() + 1).padStart(2, '0')
+  const jour = String(maintenant.getDate()).padStart(2, '0')
+  return `${maintenant.getFullYear()}-${mois}-${jour}`
 }
 
 /** Nombre prêt à être réédité dans un champ de saisie (virgule française). */
-export function toInputValue(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return ''
-  return String(value).replace('.', ',')
+export function versChamp(valeur: number | null | undefined): string {
+  if (valeur === null || valeur === undefined || !Number.isFinite(valeur)) return ''
+  return String(valeur).replace('.', ',')
 }
 
-export const SOLSCAN_URL = (address: string) =>
-  `https://solscan.io/account/${encodeURIComponent(address)}`
-
-export const GMGN_URL = (address: string) =>
-  `https://gmgn.ai/sol/address/${encodeURIComponent(address)}`
+export const SOLSCAN_URL = (adresse: string) =>
+  `https://solscan.io/account/${encodeURIComponent(adresse)}`
 
 /**
  * La page de trade Padre d'un token, construite depuis son adresse.
  *
  * Padre est une application monopage : son HTML est le même pour tous les
- * tokens et ne contient ni le nom ni même l'adresse. Le lien se fabrique donc
- * à l'aveugle, et c'est suffisant — il n'a besoin que du CA. Le nom, lui,
- * vient d'ailleurs (voir `lib/token-meta.ts`).
+ * tokens et ne contient ni le nom ni l'adresse. Le lien se fabrique donc à
+ * l'aveugle, et c'est suffisant — il n'a besoin que du CA. Le nom, lui, vient
+ * d'ailleurs (voir `lib/token-meta.ts`).
  */
 export const PADRE_URL = (mint: string) =>
   `https://trade.padre.gg/trade/solana/${encodeURIComponent(mint)}`

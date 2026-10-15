@@ -2,9 +2,9 @@
 
 import { useRef, useState } from 'react'
 
-import { resolveTokenMetaAction } from '@/app/actions'
-import { PADRE_URL, shortAddress } from '@/lib/format'
-import { isLikelySolanaAddress } from '@/lib/validation'
+import { resoudreNomTokenAction } from '@/app/actions'
+import { PADRE_URL, adresseCourte } from '@/lib/format'
+import { estAdresseSolana } from '@/lib/validation'
 import { cn } from '../ui/cn'
 import { TextField } from '../ui/field'
 import { ExternalIcon } from '../ui/icons'
@@ -32,10 +32,10 @@ import { ExternalIcon } from '../ui/icons'
  * écritures sont regroupées par forme de patch, et un `name` seul chasserait
  * le `mint` encore en attente d'enregistrement.
  */
-export type PatchNomToken = { name: string | null; mint: string | null }
+export type PatchNomToken = { nom: string | null; mint: string | null }
 
 export function ChampNomToken({
-  name,
+  nom,
   mint,
   numero,
   dataChamp,
@@ -43,7 +43,7 @@ export function ChampNomToken({
   className,
   onChange,
 }: {
-  name: string | null
+  nom: string | null
   mint: string | null
   /** Numéro de ligne, pour les libellés d'accessibilité. */
   numero: number
@@ -72,23 +72,23 @@ export function ChampNomToken({
     // Vider le champ remet la ligne à zéro, adresse comprise : garder un lien
     // Padre sur une ligne sans nom n'aurait plus de sens.
     if (brut === '') {
-      onChange({ name: null, mint: null })
+      onChange({ nom: null, mint: null })
       return
     }
 
-    if (!isLikelySolanaAddress(brut)) {
-      onChange({ name: valeur, mint })
+    if (!estAdresseSolana(brut)) {
+      onChange({ nom: valeur, mint })
       return
     }
 
-    onChange({ name: shortAddress(brut), mint: brut })
+    onChange({ nom: adresseCourte(brut), mint: brut })
     setEnCours(true)
 
-    void resolveTokenMetaAction(brut).then((meta) => {
+    void resoudreNomTokenAction(brut).then((meta) => {
       if (tour.current !== mien) return
       setEnCours(false)
       if (meta === null) return
-      onChange({ name: meta.name, mint: brut })
+      onChange({ nom: meta.name, mint: brut })
       setSync((precedent) => precedent + 1)
     })
   }
@@ -99,7 +99,7 @@ export function ChampNomToken({
         ariaLabel={`Nom ou adresse du token ${numero}`}
         dataChamp={dataChamp}
         dataLigne={dataLigne}
-        value={name ?? ''}
+        value={nom ?? ''}
         sync={sync}
         onChange={saisir}
         placeholder={`Token ${numero} ou CA`}

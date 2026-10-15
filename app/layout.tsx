@@ -2,54 +2,38 @@ import type { Metadata, Viewport } from 'next'
 
 import { AppShell } from '@/components/app-shell'
 import { clientServeur } from '@/lib/auth/supabase'
-import { todayIso } from '@/lib/format'
-import { listFileDuMatin } from '@/lib/repo/days'
-import { getSettings } from '@/lib/repo/settings'
+import { listerWallets } from '@/lib/repo/wallets'
+import { resumer } from '@/lib/resume'
+import { ScriptTheme } from '@/components/ui/theme'
 
 import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Ruggers',
-  description: 'Suivi manuel des wallets de développeurs de memecoins.',
+  description: 'Suivi personnel de wallets de memecoins Solana.',
 }
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  // Un seul thème : l'app est sombre, quel que soit le réglage du système.
-  themeColor: '#0d0d0e',
+  // L'app est sombre par défaut ; la barre du navigateur suit.
+  themeColor: '#000000',
 }
 
-// La base est lue à chaque requête : rien à mettre en cache sur une app locale.
+// La base est lue à chaque requête : rien à mettre en cache sur un outil
+// personnel où chaque saisie change les chiffres.
 export const dynamic = 'force-dynamic'
 
-/**
- * Pose le thème choisi avant le premier rendu.
- *
- * Sans ce script, une page réglée en clair s'afficherait d'abord en sombre —
- * le temps que React démarre et lise le stockage local. Il s'exécute de
- * manière bloquante, dans le `<head>`, ce qui est exactement ce qu'on veut
- * ici : quelques microsecondes contre un clignotement visible.
- */
-function ScriptTheme() {
-  const script = `try{var t=localStorage.getItem('ruggers-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}`
-  return <script dangerouslySetInnerHTML={{ __html: script }} />
-}
-
-export default async function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const supabase = await clientServeur()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Pas de session : seule la page de connexion peut s'afficher (le
-  // middleware y a déjà renvoyé le reste). On la rend nue — ni rail, ni
-  // requête vers la base, qui n'a rien à dire à un visiteur.
+  // Pas de session : seule la page de connexion peut s'afficher (le middleware
+  // y a déjà renvoyé le reste). On la rend nue — ni panneau, ni requête vers la
+  // base, qui n'a rien à dire à un visiteur.
   if (user === null) {
     return (
       <html lang="fr" suppressHydrationWarning>
@@ -61,16 +45,7 @@ export default async function RootLayout({
     )
   }
 
-  // Les journées en attente, toutes phases de test confondues : c'est ce
-  // chiffre que porte la pastille du rail.
-  const [file, settings] = await Promise.all([
-    listFileDuMatin(todayIso()),
-    getSettings(),
-  ])
-  const journeesAFaire = file.reduce(
-    (total, entree) => total + entree.aRelever.length,
-    0,
-  )
+  const resumes = (await listerWallets()).map((wallet) => resumer(wallet))
 
   return (
     <html lang="fr" suppressHydrationWarning>
@@ -78,11 +53,7 @@ export default async function RootLayout({
         <ScriptTheme />
       </head>
       <body>
-        <AppShell
-          journeesAFaire={journeesAFaire}
-          solPriceEur={settings.solPriceEur}
-          email={user?.email ?? null}
-        >
+        <AppShell resumes={resumes} email={user.email ?? null}>
           {children}
         </AppShell>
       </body>

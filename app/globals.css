@@ -1,150 +1,138 @@
 @import 'tailwindcss';
 
 /* ---------------------------------------------------------------------------
-   Deux thèmes, une seule grammaire.
+   Palette système Apple.
 
-   Les fonds sont des gris francs, sans biais de teinte, pour que les seuls
-   écarts de couleur de l'écran viennent des chiffres. Rien de décoratif n'est
-   coloré : ce qui est actif se détache par contraste (`--c-accent`, clair sur
-   sombre et sombre sur clair), et la couleur ne dit que trois choses — un
-   gain, une perte, une décision qui attend.
+   Les couleurs ne disent que trois choses : un gain (vert), une perte (rouge),
+   une phase (violet, orange, bleu). Rien de décoratif n'est coloré — ce qui est
+   actif se détache par contraste, pas par teinte.
 
-   Les tons sémantiques ne sont pas les mêmes d'un thème à l'autre : un jade
-   qui tient sur du graphite devient illisible sur du blanc. Chaque thème a
-   les siens, calés pour rester lisibles sur leur propre fond.
-
-   Trois états à couvrir, pas deux : un choix explicite pose `data-theme` sur
-   la racine, et le réglage « système » n'en pose aucun — c'est alors
-   `prefers-color-scheme` qui tranche.
+   Trois états de thème à couvrir, pas deux : un choix explicite pose
+   `data-theme` sur la racine, et le réglage « système » n'en pose aucun —
+   c'est alors `prefers-color-scheme` qui tranche.
    --------------------------------------------------------------------------- */
 
-/* Thème clair — la valeur par défaut, celle du document non marqué. */
+/*
+ * Sombre par défaut, clair sur demande.
+ *
+ * L'app se regarde longtemps, souvent le soir, et ses écrans sont denses : le
+ * sombre fatigue moins et fait ressortir les chiffres. Le réglage système n'est
+ * pas consulté — c'est un choix d'application, pas une préférence d'OS — mais
+ * le clair reste à un clic, et le choix est mémorisé.
+ */
 :root {
-  color-scheme: light;
-
-  --c-bg: #f5f5f7;
-  --c-card: #ffffff;
-  --c-card-2: #eeeef1;
-  --c-text: #17171a;
-  --c-text-2: #5f6068;
-  --c-text-3: #8d8e97;
-  --c-separator: #e3e3e7;
-  --c-fill: #eeeef1;
-  --c-fill-2: #f2f2f5;
-  /* Pastille du contrôle segmenté : toujours plus contrastée que son rail. */
-  --c-segment: #ffffff;
-  --c-nav: rgba(245, 245, 247, 0.82);
-
-  /* L'identité n'a pas de teinte : ici, c'est le sombre qui ressort. */
-  --c-accent: #1b1b1f;
-  --c-accent-ink: #ffffff;
-  /* Fond d'un élément actif ou survolé, plus marqué que la carte qui le porte. */
-  --c-hi: #e4e4e9;
-
-  /* Sémantique, assombrie pour rester lisible sur du blanc. */
-  --c-green: #2f8257;
-  --c-red: #b4453d;
-  --c-orange: #926d1d;
-  /* Ardoise : mis sous surveillance, et la phase de test en cours. */
-  --c-blue: #5a6498;
-  --c-blue-soft: rgba(90, 100, 152, 0.12);
-  --c-gray: #70707a;
-
-  --c-dots: #e6e6ea;
-  --c-shadow: rgba(0, 0, 0, 0.08);
-}
-
-/* Thème sombre — appliqué par le système, sauf choix explicite du clair. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    color-scheme: dark;
-
-    --c-bg: #0d0d0e;
-    --c-card: #151517;
-    --c-card-2: #1d1d20;
-    --c-text: #ededf0;
-    --c-text-2: #9a9aa2;
-    --c-text-3: #5e5e66;
-    --c-separator: #26262a;
-    --c-fill: #1d1d20;
-    --c-fill-2: #1c1c20;
-    --c-segment: #2a2a30;
-    --c-nav: rgba(13, 13, 14, 0.82);
-
-    --c-accent: #ededf0;
-    --c-accent-ink: #121214;
-    --c-hi: #26262b;
-
-    --c-green: #4ea97b;
-    --c-red: #d1584f;
-    --c-orange: #c99a3e;
-    --c-blue: #7b86b8;
-    --c-blue-soft: rgba(123, 134, 184, 0.16);
-    --c-gray: #7b7b84;
-
-    --c-dots: #1d1d20;
-    --c-shadow: rgba(0, 0, 0, 0.5);
-  }
-}
-
-/* Thème sombre — choisi à la main, quel que soit le réglage du système. */
-:root[data-theme='dark'] {
   color-scheme: dark;
 
-  --c-bg: #0d0d0e;
-  --c-card: #151517;
-  --c-card-2: #1d1d20;
-  --c-text: #ededf0;
-  --c-text-2: #9a9aa2;
-  --c-text-3: #5e5e66;
-  --c-separator: #26262a;
-  --c-fill: #1d1d20;
-  --c-fill-2: #1c1c20;
-  --c-segment: #2a2a30;
-  --c-nav: rgba(13, 13, 14, 0.82);
+  --c-bg: #000000;
+  --c-card: #1c1c1e;
+  --c-card-2: #2c2c2e;
+  --c-card-3: #3a3a3c;
+  --c-nav: rgba(0, 0, 0, 0.72);
 
-  --c-accent: #ededf0;
-  --c-accent-ink: #121214;
-  --c-hi: #26262b;
+  --c-text: #ffffff;
+  --c-text-2: #ebebf599;
+  --c-text-3: #ebebf54d;
 
-  --c-green: #4ea97b;
-  --c-red: #d1584f;
-  --c-orange: #c99a3e;
-  --c-blue: #7b86b8;
-  --c-blue-soft: rgba(123, 134, 184, 0.16);
-  --c-gray: #7b7b84;
+  --c-separator: #38383a;
+  --c-fill: #7878805c;
+  --c-fill-2: #78788029;
+  --c-hi: #7878807a;
+  --c-segment: #636366;
 
-  --c-dots: #1d1d20;
-  --c-shadow: rgba(0, 0, 0, 0.5);
+  --c-blue: #0a84ff;
+  --c-green: #30d158;
+  --c-red: #ff453a;
+  --c-orange: #ff9f0a;
+  --c-violet: #bf5af2;
+  --c-gray: #98989d;
+
+  --c-blue-soft: #0a84ff2e;
+  --c-green-soft: #30d1582e;
+  --c-red-soft: #ff453a2e;
+  --c-orange-soft: #ff9f0a2e;
+  --c-violet-soft: #bf5af22e;
+
+  --c-accent: #ffffff;
+  --c-accent-ink: #000000;
+
+  --c-shadow: rgba(0, 0, 0, 0.6);
+}
+
+/* Thème clair — les mêmes couleurs système, calées pour tenir sur du blanc. */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --c-bg: #f2f2f7;
+  --c-card: #ffffff;
+  --c-card-2: #f7f7fa;
+  --c-card-3: #ebebf0;
+  --c-nav: rgba(242, 242, 247, 0.78);
+
+  --c-text: #000000;
+  --c-text-2: #3c3c4399;
+  --c-text-3: #3c3c434d;
+
+  --c-separator: #d8d8dc;
+  --c-fill: #78788014;
+  --c-fill-2: #7878800a;
+  --c-hi: #7878801f;
+  --c-segment: #ffffff;
+
+  --c-blue: #007aff;
+  --c-green: #34c759;
+  --c-red: #ff3b30;
+  --c-orange: #ff9500;
+  --c-violet: #af52de;
+  --c-gray: #8e8e93;
+
+  --c-blue-soft: #007aff1f;
+  --c-green-soft: #34c7591f;
+  --c-red-soft: #ff3b301f;
+  --c-orange-soft: #ff95001f;
+  --c-violet-soft: #af52de1f;
+
+  --c-accent: #1c1c1e;
+  --c-accent-ink: #ffffff;
+
+  --c-shadow: rgba(0, 0, 0, 0.1);
 }
 
 @theme inline {
   --color-bg: var(--c-bg);
   --color-card: var(--c-card);
   --color-card-2: var(--c-card-2);
+  --color-card-3: var(--c-card-3);
+  --color-nav: var(--c-nav);
   --color-ink: var(--c-text);
   --color-ink-2: var(--c-text-2);
   --color-ink-3: var(--c-text-3);
   --color-separator: var(--c-separator);
   --color-fill: var(--c-fill);
   --color-fill-2: var(--c-fill-2);
+  --color-hi: var(--c-hi);
   --color-segment: var(--c-segment);
-  --color-nav: var(--c-nav);
   --color-accent: var(--c-accent);
   --color-accent-ink: var(--c-accent-ink);
-  --color-hi: var(--c-hi);
+
   --color-blue: var(--c-blue);
-  --color-blue-soft: var(--c-blue-soft);
   --color-green: var(--c-green);
   --color-red: var(--c-red);
   --color-orange: var(--c-orange);
+  --color-violet: var(--c-violet);
   --color-gray: var(--c-gray);
 
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Helvetica Neue',
-    Arial, sans-serif;
+  --color-blue-soft: var(--c-blue-soft);
+  --color-green-soft: var(--c-green-soft);
+  --color-red-soft: var(--c-red-soft);
+  --color-orange-soft: var(--c-orange-soft);
+  --color-violet-soft: var(--c-violet-soft);
 
-  --radius-card: 15px;
+  /* Police système : SF Pro sur Apple, Segoe UI en repli. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+    'Helvetica Neue', Arial, sans-serif;
+
+  --radius-card: 12px;
 }
 
 html {
@@ -157,6 +145,8 @@ body {
   background-color: var(--c-bg);
   color: var(--c-text);
   font-family: var(--font-sans);
+  /* Les chiffres s'alignent en colonne d'une ligne à l'autre. */
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* L'app occupe exactement l'écran : pas de rebond élastique sur la page. */
@@ -164,20 +154,9 @@ body {
 }
 
 ::selection {
-  background-color: color-mix(in srgb, var(--c-accent) 22%, transparent);
+  background-color: color-mix(in srgb, var(--c-blue) 22%, transparent);
 }
 
-/*
- * Trame de points. Elle habille les grandes surfaces vides — cellules de
- * tableau, fonds de colonnes — pour qu'un écran peu rempli garde une texture
- * au lieu d'un aplat. Assez faible pour ne jamais disputer la lecture.
- */
-.pointille {
-  background-image: radial-gradient(circle at 1px 1px, var(--c-dots) 1px, transparent 0);
-  background-size: 22px 22px;
-}
-
-/* Réglage système « réduire les animations » : on retire les transitions. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -195,7 +174,6 @@ body {
  * écraserait alors la couleur de chaque bouton (text-blue, text-red…).
  */
 @layer base {
-  /* Champs et boutons : on retire l'habillage natif, on garde le comportement. */
   input,
   textarea,
   select,
@@ -210,9 +188,15 @@ body {
     margin: 0;
   }
 
+  /* Le sélecteur de date natif reste discret et suit le thème. */
+  input[type='date']::-webkit-calendar-picker-indicator {
+    opacity: 0.45;
+    cursor: pointer;
+  }
+
   /* Anneau de focus discret, à la macOS. */
   :focus-visible {
-    outline: 2px solid var(--c-accent);
+    outline: 2px solid var(--c-blue);
     outline-offset: 1px;
   }
 }

@@ -1,185 +1,356 @@
 import 'server-only'
 
-import { asc, desc, eq } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 
 import { db } from '../db'
-import { tokens, walletDays, wallets } from '../db/schema'
-import { mapToken, mapWallet, mapWalletDay } from './mappers'
-import { getSettings } from './settings'
+import { jours, tokens, trades, wallets } from '../db/schema'
 import type {
-  CreateWalletInput,
-  UpdateWalletPatch,
+  Decompte,
+  Issue,
+  Jour,
+  NouveauToken,
+  NouveauTrade,
+  NouveauWallet,
+  PatchWallet,
+  Phase,
+  Token,
+  TradeComplet,
   Wallet,
-  WalletDay,
-  WalletWithTokens,
+  WalletComplet,
 } from './types'
 
-/** Lignes de tokens vides créées avec un nouveau wallet. */
-export const LIGNES_INITIALES = 10
-
-function now(): string {
+function maintenant(): string {
   return new Date().toISOString()
 }
 
-/** Tous les wallets avec leurs tokens, du plus récemment analysé au plus ancien. */
-export async function listWallets(): Promise<WalletWithTokens[]> {
-  // Trois requêtes lancées ensemble : elles ne dépendent pas les unes des
-  // autres, et sur une base distante les enchaîner coûterait trois allers-retours.
-  const [walletRows, tokenRows, dayRows] = await Promise.all([
-    db.select().from(wallets).orderBy(desc(wallets.analyzedAt), desc(wallets.createdAt)),
+/** Une valeur venue de la base peut être n'importe quoi : on la range. */
+function versPhase(valeur: string): Phase {
+  return valeur === 'test' || valeur === 'trade' || valeur === 'archive'
+    ? valeur
+    : 'screening'
+}
+
+function versIssue(valeur: string): Issue {
+  return valeur === 'tp' ? 'tp' : 'rate'
+}
+
+function versWallet(ligne: typeof wallets.$inferSelect): Wallet {
+  return {
+    id: ligne.id,
+    nom: ligne.nom,
+    adresse: ligne.adresse,
+    phase: versPhase(ligne.phase),
+    reglages: { mise: ligne.mise, tp: ligne.tp, frais: ligne.frais },
+    tokensScreening: ligne.tokensScreening,
+    joursTest: ligne.joursTest,
+    notes: ligne.notes,
+    creeLe: ligne.creeLe,
+    testLe: ligne.testLe,
+    tradeLe: ligne.tradeLe,
+  }
+}
+
+function versToken(ligne: typeof tokens.$inferSelect): Token {
+  return {
+    id: ligne.id,
+    phase: ligne.phase === 'test' ? 'test' : 'screening',
+    jour: ligne.jour,
+    nom: ligne.nom,
+    mint: ligne.mint,
+    issue: versIssue(ligne.issue),
+    position: ligne.position,
+  }
+}
+
+function versTrade(ligne: typeof trades.$inferSelect): TradeComplet {
+  return {
+    id: ligne.id,
+    date: ligne.date,
+    nom: ligne.nom,
+    mint: ligne.mint,
+    entreeSol: ligne.entreeSol,
+    sortieSol: ligne.sortieSol,
+    issue: versIssue(ligne.issue),
+  }
+}
+
+function versJour(ligne: typeof jours.$inferSelect): Jour {
+  return { id: ligne.id, jour: ligne.jour }
+}
+
+// ---------------------------------------------------------------------------
+// Lecture
+// ---------------------------------------------------------------------------
+
+/**
+ * Tous les wallets avec tout leur contenu.
+ *
+ * Quatre requêtes lancées ensemble plutôt qu'en cascade : elles ne dépendent
+ * pas les unes des autres, et sur une base distante les enchaîner coûterait
+ * quatre allers-retours. Le volume reste celui d'un suivi personnel.
+ */
+export async function listerWallets(): Promise<WalletComplet[]> {
+  const [lignesWallets, lignesTokens, lignesJours, lignesTrades] = await Promise.all([
+    db.select().from(wallets).orderBy(asc(wallets.creeLe)),
     db.select().from(tokens).orderBy(asc(tokens.walletId), asc(tokens.position)),
-    db.select().from(walletDays).orderBy(asc(walletDays.walletId), asc(walletDays.day)),
+    db.select().from(jours).orderBy(asc(jours.walletId), asc(jours.jour)),
+    db.select().from(trades).orderBy(asc(trades.walletId), asc(trades.date), asc(trades.creeLe)),
   ])
 
-  const byWallet = new Map<string, ReturnType<typeof mapToken>[]>()
-  for (const row of tokenRows) {
-    const list = byWallet.get(row.walletId)
-    if (list) list.push(mapToken(row))
-    else byWallet.set(row.walletId, [mapToken(row)])
+  const grouper = <L extends { walletId: string }, T>(
+    lignes: L[],
+    convertir: (ligne: L) => T,
+  ): Map<string, T[]> => {
+    const parWallet = new Map<string, T[]>()
+    for (const ligne of lignes) {
+      const liste = parWallet.get(ligne.walletId)
+      if (liste) liste.push(convertir(ligne))
+      else parWallet.set(ligne.walletId, [convertir(ligne)])
+    }
+    return parWallet
   }
 
-  const daysByWallet = new Map<string, WalletDay[]>()
-  for (const row of dayRows) {
-    const list = daysByWallet.get(row.walletId)
-    if (list) list.push(mapWalletDay(row))
-    else daysByWallet.set(row.walletId, [mapWalletDay(row)])
-  }
+  const parToken = grouper(lignesTokens, versToken)
+  const parJour = grouper(lignesJours, versJour)
+  const parTrade = grouper(lignesTrades, versTrade)
 
-  return walletRows.map((row) => ({
-    ...mapWallet(row),
-    tokens: byWallet.get(row.id) ?? [],
-    days: daysByWallet.get(row.id) ?? [],
+  return lignesWallets.map((ligne) => ({
+    ...versWallet(ligne),
+    tokens: parToken.get(ligne.id) ?? [],
+    jours: parJour.get(ligne.id) ?? [],
+    trades: parTrade.get(ligne.id) ?? [],
   }))
 }
 
-export async function getWallet(id: string): Promise<WalletWithTokens | null> {
-  const [row] = await db.select().from(wallets).where(eq(wallets.id, id)).limit(1)
-  if (!row) return null
+export async function lireWallet(id: string): Promise<WalletComplet | null> {
+  const [ligne] = await db.select().from(wallets).where(eq(wallets.id, id)).limit(1)
+  if (!ligne) return null
 
-  const [tokenRows, dayRows] = await Promise.all([
+  const [lignesTokens, lignesJours, lignesTrades] = await Promise.all([
+    db.select().from(tokens).where(eq(tokens.walletId, id)).orderBy(asc(tokens.position)),
+    db.select().from(jours).where(eq(jours.walletId, id)).orderBy(asc(jours.jour)),
     db
       .select()
-      .from(tokens)
-      .where(eq(tokens.walletId, id))
-      .orderBy(asc(tokens.position)),
-    db
-      .select()
-      .from(walletDays)
-      .where(eq(walletDays.walletId, id))
-      .orderBy(asc(walletDays.day)),
+      .from(trades)
+      .where(eq(trades.walletId, id))
+      .orderBy(asc(trades.date), asc(trades.creeLe)),
   ])
 
   return {
-    ...mapWallet(row),
-    tokens: tokenRows.map(mapToken),
-    days: dayRows.map(mapWalletDay),
+    ...versWallet(ligne),
+    tokens: lignesTokens.map(versToken),
+    jours: lignesJours.map(versJour),
+    trades: lignesTrades.map(versTrade),
   }
 }
 
-/** Adresses déjà suivies, pour refuser les doublons à la saisie. */
-export async function listAddresses(): Promise<string[]> {
-  const rows = await db.select({ address: wallets.address }).from(wallets)
-  return rows.map((r) => r.address)
+/** Adresses déjà suivies, pour refuser un doublon à la saisie. */
+export async function listerAdresses(): Promise<string[]> {
+  const lignes = await db.select({ adresse: wallets.adresse }).from(wallets)
+  return lignes.map((ligne) => ligne.adresse)
 }
 
-export async function findByAddress(address: string): Promise<Wallet | null> {
-  const [row] = await db
-    .select()
+/** Ce qu'une suppression emporterait. Sert à l'annoncer avant de la faire. */
+export async function compterContenu(id: string): Promise<Decompte> {
+  const [compte] = await db
+    .select({
+      tokens: sql<number>`(select count(*) from ${tokens} where ${tokens.walletId} = ${id})`,
+      jours: sql<number>`(select count(*) from ${jours} where ${jours.walletId} = ${id})`,
+      trades: sql<number>`(select count(*) from ${trades} where ${trades.walletId} = ${id})`,
+    })
     .from(wallets)
-    .where(eq(wallets.address, address))
+    .where(eq(wallets.id, id))
     .limit(1)
-  return row ? mapWallet(row) : null
+
+  return {
+    tokens: Number(compte?.tokens ?? 0),
+    jours: Number(compte?.jours ?? 0),
+    trades: Number(compte?.trades ?? 0),
+  }
 }
 
-/**
- * Crée un wallet avec les réglages par défaut du moment et ses 10 lignes de
- * tokens vides, le tout dans une seule transaction.
- */
-export async function createWallet(
-  input: CreateWalletInput,
-): Promise<WalletWithTokens> {
-  const { defaults } = await getSettings()
-  const timestamp = now()
+// ---------------------------------------------------------------------------
+// Écriture — wallets
+// ---------------------------------------------------------------------------
+
+export async function creerWallet(entree: NouveauWallet): Promise<string> {
   const id = crypto.randomUUID()
 
-  await db.transaction(async (tx) => {
-    await tx.insert(wallets)
-      .values({
-        id,
-        label: input.label.trim(),
-        address: input.address.trim(),
-        analyzedAt: input.analyzedAt,
-        notes: '',
-        tagOverride: null,
-        status: 'screening',
-        testStartedAt: null,
-        tradeStartedAt: null,
-        mise: defaults.mise,
-        objectif: defaults.objectif,
-        perteRug: defaults.perteRug,
-        frais: defaults.frais,
-        tauxVise: defaults.tauxVise,
-        source: 'manual',
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-
-    await tx.insert(tokens)
-      .values(
-        Array.from({ length: LIGNES_INITIALES }, (_, i) => ({
-          id: crypto.randomUUID(),
-          walletId: id,
-          position: i + 1,
-          name: null,
-          mint: null,
-          gain: null,
-          perteRug: null,
-          delay: null,
-          // Les lignes d'amorce appartiennent à l'échantillon de screening.
-          phase: 'screening' as const,
-          dayId: null,
-          source: 'manual' as const,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        })),
-      )
+  // Les réglages ne sont pas précisés ici : ce sont les valeurs par défaut des
+  // colonnes qui s'appliquent, et elles valent pour ce wallet seul. Les
+  // modifier plus tard ne touche aucun autre wallet.
+  await db.insert(wallets).values({
+    id,
+    nom: entree.nom.trim() || 'Sans nom',
+    adresse: entree.adresse.trim(),
+    creeLe: maintenant(),
   })
 
-  const created = await getWallet(id)
-  if (!created) throw new Error('Le wallet n’a pas pu être créé.')
-  return created
+  return id
 }
 
-export async function updateWallet(
-  id: string,
-  patch: UpdateWalletPatch,
-): Promise<void> {
-  const values: Record<string, unknown> = { updatedAt: now() }
+export async function modifierWallet(id: string, patch: PatchWallet): Promise<void> {
+  const valeurs: Record<string, unknown> = {}
 
-  if (patch.label !== undefined) values.label = patch.label
-  if (patch.address !== undefined) values.address = patch.address.trim()
-  if (patch.analyzedAt !== undefined) values.analyzedAt = patch.analyzedAt
-  if (patch.notes !== undefined) values.notes = patch.notes
-  if (patch.tagOverride !== undefined) values.tagOverride = patch.tagOverride
-  if (patch.status !== undefined) values.status = patch.status
-  if (patch.testStartedAt !== undefined) values.testStartedAt = patch.testStartedAt
-  if (patch.tradeStartedAt !== undefined) {
-    values.tradeStartedAt = patch.tradeStartedAt
+  if (patch.nom !== undefined) valeurs.nom = patch.nom
+  if (patch.adresse !== undefined) valeurs.adresse = patch.adresse.trim()
+  if (patch.phase !== undefined) valeurs.phase = patch.phase
+  if (patch.notes !== undefined) valeurs.notes = patch.notes
+  if (patch.tokensScreening !== undefined) valeurs.tokensScreening = patch.tokensScreening
+  if (patch.joursTest !== undefined) valeurs.joursTest = patch.joursTest
+  if (patch.testLe !== undefined) valeurs.testLe = patch.testLe
+  if (patch.tradeLe !== undefined) valeurs.tradeLe = patch.tradeLe
+
+  const r = patch.reglages
+  if (r) {
+    if (r.mise !== undefined) valeurs.mise = r.mise
+    if (r.tp !== undefined) valeurs.tp = r.tp
+    if (r.frais !== undefined) valeurs.frais = r.frais
   }
 
-  const s = patch.strategy
-  if (s) {
-    if (s.mise !== undefined) values.mise = s.mise
-    if (s.objectif !== undefined) values.objectif = s.objectif
-    if (s.perteRug !== undefined) values.perteRug = s.perteRug
-    if (s.frais !== undefined) values.frais = s.frais
-    if (s.tauxVise !== undefined) values.tauxVise = s.tauxVise
-  }
-
-  await db.update(wallets).set(values).where(eq(wallets.id, id))
+  if (Object.keys(valeurs).length === 0) return
+  await db.update(wallets).set(valeurs).where(eq(wallets.id, id))
 }
 
-/** Supprime le wallet ; ses tokens et ses journées suivent (ON DELETE CASCADE). */
-export async function deleteWallet(id: string): Promise<void> {
+/** Supprime le wallet ; tokens, journées et trades suivent (ON DELETE CASCADE). */
+export async function supprimerWallet(id: string): Promise<void> {
   await db.delete(wallets).where(eq(wallets.id, id))
+}
+
+// ---------------------------------------------------------------------------
+// Écriture — tokens
+// ---------------------------------------------------------------------------
+
+async function prochainePosition(walletId: string): Promise<number> {
+  const [ligne] = await db
+    .select({ max: sql<number | null>`max(${tokens.position})` })
+    .from(tokens)
+    .where(eq(tokens.walletId, walletId))
+    .limit(1)
+  return (ligne?.max ?? 0) + 1
+}
+
+export async function ajouterToken(
+  walletId: string,
+  entree: NouveauToken,
+): Promise<Token> {
+  const ligne = {
+    id: crypto.randomUUID(),
+    walletId,
+    phase: entree.phase,
+    jour: entree.jour ?? null,
+    nom: entree.nom ?? null,
+    mint: entree.mint ?? null,
+    issue: entree.issue,
+    position: await prochainePosition(walletId),
+    creeLe: maintenant(),
+  }
+
+  await db.insert(tokens).values(ligne)
+  return versToken(ligne)
+}
+
+export async function modifierToken(
+  id: string,
+  patch: Partial<{ nom: string | null; mint: string | null; issue: Issue }>,
+): Promise<void> {
+  const valeurs: Record<string, unknown> = {}
+  if (patch.nom !== undefined) valeurs.nom = patch.nom
+  if (patch.mint !== undefined) valeurs.mint = patch.mint
+  if (patch.issue !== undefined) valeurs.issue = patch.issue
+
+  if (Object.keys(valeurs).length === 0) return
+  await db.update(tokens).set(valeurs).where(eq(tokens.id, id))
+}
+
+export async function supprimerToken(id: string): Promise<void> {
+  await db.delete(tokens).where(eq(tokens.id, id))
+}
+
+// ---------------------------------------------------------------------------
+// Écriture — journées de test
+// ---------------------------------------------------------------------------
+
+/**
+ * Enregistre une journée de test et ses lancements, d'un seul bloc.
+ *
+ * La journée est créée même sans aucun lancement : c'est ce qui permet de
+ * relever une journée « sans lancement », qui compte dans les jours observés.
+ * Relever une journée déjà présente ajoute ses lancements aux existants plutôt
+ * que de la réécrire — on corrige ligne par ligne, pas en ressaisissant tout.
+ */
+export async function releverJour(
+  walletId: string,
+  jour: string,
+  issues: readonly Issue[],
+): Promise<void> {
+  const horodatage = maintenant()
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(jours)
+      .values({ id: crypto.randomUUID(), walletId, jour, creeLe: horodatage })
+      .onConflictDoNothing()
+
+    if (issues.length === 0) return
+
+    const [ligne] = await tx
+      .select({ max: sql<number | null>`max(${tokens.position})` })
+      .from(tokens)
+      .where(eq(tokens.walletId, walletId))
+      .limit(1)
+    const depart = (ligne?.max ?? 0) + 1
+
+    await tx.insert(tokens).values(
+      issues.map((issue, i) => ({
+        id: crypto.randomUUID(),
+        walletId,
+        phase: 'test' as const,
+        jour,
+        nom: null,
+        mint: null,
+        issue,
+        position: depart + i,
+        creeLe: horodatage,
+      })),
+    )
+  })
+}
+
+/** Supprime une journée et les lancements qui s'y rattachent. */
+export async function supprimerJour(walletId: string, jour: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(tokens)
+      .where(and(eq(tokens.walletId, walletId), eq(tokens.jour, jour)))
+    await tx.delete(jours).where(and(eq(jours.walletId, walletId), eq(jours.jour, jour)))
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Écriture — trades
+// ---------------------------------------------------------------------------
+
+export async function ajouterTrade(
+  walletId: string,
+  entree: NouveauTrade,
+): Promise<TradeComplet> {
+  const ligne = {
+    id: crypto.randomUUID(),
+    walletId,
+    date: entree.date,
+    nom: entree.nom ?? null,
+    mint: entree.mint ?? null,
+    entreeSol: entree.entreeSol,
+    sortieSol: entree.sortieSol,
+    issue: entree.issue,
+    creeLe: maintenant(),
+  }
+
+  await db.insert(trades).values(ligne)
+  return versTrade(ligne)
+}
+
+export async function supprimerTrade(id: string): Promise<void> {
+  await db.delete(trades).where(eq(trades.id, id))
 }

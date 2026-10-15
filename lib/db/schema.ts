@@ -1,6 +1,23 @@
-import { sql } from 'drizzle-orm'
+/**
+ * Schéma Ruggers v2.
+ *
+ * Quatre tables, et une règle qui les tient : screening, test et trade sont
+ * trois lots séparés dont les résultats ne s'additionnent jamais. Le screening
+ * est un échantillon choisi à la main, le test un relevé exhaustif mais simulé,
+ * le trade le seul lot où du SOL est réellement sorti du portefeuille.
+ *
+ * Rien n'est bridé ici : aucune contrainte ne vérifie qu'un wallet a « assez »
+ * de tokens ou de journées pour changer de phase. Les planchers de la v1 ont
+ * disparu — l'app informe, elle n'empêche pas.
+ *
+ * Les horodatages sont des chaînes ISO-8601 et les dates de journée des chaînes
+ * `AAAA-MM-JJ`, comme en v1 : le code compare et trie ces valeurs telles
+ * qu'elles ont été écrites.
+ *
+ * Ce fichier remplacera `schema.ts` à l'étape 4 ; il vit à côté le temps que
+ * les écrans suivent, pour que l'application v1 continue de tourner.
+ */
 import {
-  boolean,
   doublePrecision,
   index,
   integer,
@@ -9,124 +26,90 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
-/**
- * Les horodatages sont des chaînes ISO-8601, écrites par l'application avec
- * `new Date().toISOString()`. On les garde en `text` plutôt qu'en `timestamp`
- * pour que la valeur lue soit exactement celle qui a été écrite — le reste du
- * code compare et trie ces dates comme des chaînes.
- */
-const horodatage = sql`to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`
+/** Phase d'un wallet dans le suivi. `archive` sort le wallet du courant. */
+export type PhaseWallet = 'screening' | 'test' | 'trade' | 'archive'
 
-/**
- * Réglages globaux. Une seule ligne, d'identifiant 1.
- * Sert de modèle aux nouveaux wallets : les valeurs sont *copiées* à la
- * création, jamais référencées, pour qu'un changement de réglages ne
- * réécrive pas l'historique.
- */
-export const settings = pgTable('settings', {
-  id: integer('id').primaryKey(),
-  solPriceEur: doublePrecision('sol_price_eur'),
-  defaultMise: doublePrecision('default_mise').notNull().default(0.1),
-  defaultObjectif: doublePrecision('default_objectif').notNull().default(100),
-  defaultPerteRug: doublePrecision('default_perte_rug').notNull().default(90),
-  defaultFrais: doublePrecision('default_frais').notNull().default(0.003),
-  defaultTauxVise: doublePrecision('default_taux_vise').notNull().default(30),
-  updatedAt: text('updated_at').notNull().default(horodatage),
-})
+/** Lot d'un token simulé. Le lot réel vit dans `trades`. */
+export type PhaseToken = 'screening' | 'test'
+
+/** Issue d'un lancement ou d'un trade. C'est toute la saisie. */
+export type Issue = 'tp' | 'rate'
+
+/** Réglages d'un nouveau wallet. Modifiables wallet par wallet ensuite. */
+export const DEFAUTS = {
+  mise: 0.05,
+  tp: 300,
+  frais: 0.008,
+  tokensScreening: 10,
+  joursTest: 5,
+} as const
 
 export const wallets = pgTable(
   'wallets',
   {
     id: text('id').primaryKey(),
-    label: text('label').notNull(),
-    address: text('address').notNull(),
-    /** Date d'analyse, au format AAAA-MM-JJ. */
-    analyzedAt: text('analyzed_at').notNull(),
-    notes: text('notes').notNull().default(''),
-    /** null | 'rentable' | 'surveiller' | 'pas' */
-    tagOverride: text('tag_override'),
+    nom: text('nom').notNull(),
+    adresse: text('adresse').notNull(),
+    /** 'screening' | 'test' | 'trade' | 'archive' */
+    phase: text('phase').notNull().default('screening'),
+
+    /** Mise engagée par trade, en SOL. Sert à simuler screening et test. */
+    mise: doublePrecision('mise').notNull().default(DEFAUTS.mise),
+    /** Take-profit visé, en %. Un lancement qui l'atteint est un `tp`. */
+    tp: doublePrecision('tp').notNull().default(DEFAUTS.tp),
+    /** Frais fixes par trade, en SOL. */
+    frais: doublePrecision('frais').notNull().default(DEFAUTS.frais),
 
     /**
-     * Où en est le wallet dans l'entonnoir :
-     * 'screening' | 'test' | 'valide' | 'trade' | 'rejete'.
-     * C'est un axe distinct du tag : le statut dit où on en est, le tag dit
-     * ce que disent les chiffres.
-     *
-     * 'trade' est la phase active : le wallet est validé *et* on engage du
-     * SOL dessus. C'est le seul statut où les chiffres enregistrés sont des
-     * montants réels et non une simulation.
+     * Repères affichés à côté des boutons de phase — « 6 / 10 tokens notés ».
+     * Ce sont des indications, pas des seuils : rien ne les vérifie.
      */
-    status: text('status').notNull().default('screening'),
-    /** Premier jour de la phase de test, AAAA-MM-JJ. null hors phase de test. */
-    testStartedAt: text('test_started_at'),
-    /** Premier jour de la phase active, AAAA-MM-JJ. null avant le premier trade. */
-    tradeStartedAt: text('trade_started_at'),
+    tokensScreening: integer('tokens_screening').notNull().default(DEFAUTS.tokensScreening),
+    joursTest: integer('jours_test').notNull().default(DEFAUTS.joursTest),
 
-    // Réglages de stratégie propres au wallet.
-    mise: doublePrecision('mise').notNull().default(0.1),
-    objectif: doublePrecision('objectif').notNull().default(100),
-    /** Perte appliquée aux tokens qui n'ont pas la leur. */
-    perteRug: doublePrecision('perte_rug').notNull().default(90),
-    frais: doublePrecision('frais').notNull().default(0.003),
-    tauxVise: doublePrecision('taux_vise').notNull().default(30),
+    notes: text('notes').notNull().default(''),
 
-    /** 'manual' aujourd'hui ; 'helius' le jour où l'import automatique arrive. */
-    source: text('source').notNull().default('manual'),
-
-    createdAt: text('created_at').notNull(),
-    updatedAt: text('updated_at').notNull(),
+    creeLe: text('cree_le').notNull(),
+    /** Jour du passage en test. null tant que la phase n'a pas été ouverte. */
+    testLe: text('test_le'),
+    /** Jour du passage en trade. */
+    tradeLe: text('trade_le'),
   },
   (table) => [
-    uniqueIndex('wallets_address_unique').on(table.address),
-    index('wallets_analyzed_at_idx').on(table.analyzedAt),
-    index('wallets_status_idx').on(table.status),
+    uniqueIndex('wallets_adresse_unique').on(table.adresse),
+    index('wallets_phase_idx').on(table.phase),
   ],
 )
 
 /**
- * Une journée de relevé, pour un wallet.
+ * Une journée de test relevée.
  *
- * La ligne existe même quand le wallet n'a rien tradé : c'est la différence
- * entre « je n'ai pas vérifié » et « il n'a rien fait ». Sans elle, le
- * décompte des jours d'observation serait faux et le plancher de la phase 2
- * ne voudrait rien dire.
- *
- * La journée porte sa phase : une journée de test observe ce que le wallet a
- * lancé, une journée de trade enregistre ce qu'on a joué. Les deux séries ne
- * se mélangent jamais — un relevé simulé et un relevé réel ne s'additionnent
- * pas plus que screening et test.
+ * Elle existe même sans aucun token : c'est la différence entre « le wallet
+ * n'a rien lancé ce jour-là » et « je n'ai pas regardé ». Sans cette table, une
+ * journée sans lancement ne laisserait aucune trace et le décompte des jours
+ * observés serait faux.
  */
-export const walletDays = pgTable(
-  'wallet_days',
+export const jours = pgTable(
+  'jours',
   {
     id: text('id').primaryKey(),
     walletId: text('wallet_id')
       .notNull()
       .references(() => wallets.id, { onDelete: 'cascade' }),
-    /** Jour observé, au format AAAA-MM-JJ. */
-    day: text('day').notNull(),
-    /** 'actif' = il a tradé ; 'inactif' = journée sans trade. */
-    state: text('state').notNull().default('actif'),
-    /**
-     * À quelle phase appartient la journée : 'test' ou 'trade'.
-     *
-     * Par défaut 'test', pour que les journées antérieures à la phase active
-     * gardent exactement le sens qu'elles avaient.
-     */
-    phase: text('phase').notNull().default('test'),
-    note: text('note').notNull().default(''),
-    /** Moment de la saisie. */
-    createdAt: text('created_at').notNull(),
-    updatedAt: text('updated_at').notNull(),
+    /** AAAA-MM-JJ */
+    jour: text('jour').notNull(),
+    creeLe: text('cree_le').notNull(),
   },
-  (table) => [
-    // Une même date peut porter une journée de test et une journée de trade :
-    // un wallet peut être remis en test pendant qu'on le trade encore.
-    uniqueIndex('wallet_days_unique').on(table.walletId, table.day, table.phase),
-    index('wallet_days_phase_idx').on(table.walletId, table.phase),
-  ],
+  (table) => [uniqueIndex('jours_unique').on(table.walletId, table.jour)],
 )
 
+/**
+ * Un lancement observé, en screening ou en test. Simulé dans les deux cas.
+ *
+ * `jour` est une date simple et non une clé étrangère : la table `jours` est le
+ * registre des journées relevées, le token n'a besoin que de savoir à laquelle
+ * il appartient. Les deux sont écrits dans la même transaction.
+ */
 export const tokens = pgTable(
   'tokens',
   {
@@ -134,71 +117,58 @@ export const tokens = pgTable(
     walletId: text('wallet_id')
       .notNull()
       .references(() => wallets.id, { onDelete: 'cascade' }),
-    /** Ordre d'affichage dans le tableau. */
-    position: integer('position').notNull(),
-    name: text('name'),
-    /** Adresse du token. */
+    /** 'screening' | 'test' */
+    phase: text('phase').notNull(),
+    /** AAAA-MM-JJ en test, null en screening. */
+    jour: text('jour'),
+    nom: text('nom'),
+    /** Adresse du token. Collée telle quelle, le nom est retrouvé ensuite. */
     mint: text('mint'),
-    /** % de montée depuis le buy. null = token non noté. */
-    gain: doublePrecision('gain'),
-    /** Perte de ce lancement, en %. null = on reprend celle du wallet. */
-    perteRug: doublePrecision('perte_rug'),
-    /** Délai avant dump, en minutes. */
-    delay: doublePrecision('delay'),
-    /**
-     * Le token a été pris. Un token non pris reste une observation du wallet
-     * — il a bien lancé ce jour-là — mais son résultat n'entre pas dans le
-     * PNL : c'est ce qui permet de mesurer un filtre d'entrée.
-     *
-     * Par défaut à vrai, pour que les relevés antérieurs au filtre gardent
-     * exactement les chiffres qu'ils avaient.
-     */
-    pris: boolean('pris').notNull().default(true),
-
-    /**
-     * De quel lot vient ce token : 'screening' (échantillon historique choisi
-     * à la main), 'test' (relevé exhaustif d'une journée) ou 'trade' (un
-     * trade réellement joué).
-     *
-     * Les trois lots ne s'additionnent pas. Le screening est biaisé par
-     * construction — on y retient ce qui se remarque. Le test est exhaustif
-     * mais simulé : son résultat est ce que la stratégie *aurait* donné. Seul
-     * le lot de trade porte des montants réellement engagés.
-     */
-    phase: text('phase').notNull().default('screening'),
-    /** Journée de rattachement. Toujours renseignée hors screening. */
-    dayId: text('day_id').references(() => walletDays.id, { onDelete: 'cascade' }),
-
-    /**
-     * SOL réellement sorti du portefeuille pour entrer sur ce token.
-     * `null` hors phase active : le lot de test se calcule sur la mise
-     * théorique du wallet, pas sur un montant engagé.
-     */
-    entreeSol: doublePrecision('entree_sol'),
-    /**
-     * SOL réellement récupéré à la sortie, frais de réseau et slippage
-     * compris — c'est ce qui est rentré, pas ce qui aurait dû rentrer.
-     *
-     * Le couple entrée/sortie remplace entièrement la simulation : quand il
-     * est renseigné, `mise`, `frais` et `perteRug` du wallet ne servent plus.
-     * C'est le seul moyen d'avoir un PNL qui dise la vérité.
-     */
-    sortieSol: doublePrecision('sortie_sol'),
-
-    source: text('source').notNull().default('manual'),
-    createdAt: text('created_at').notNull(),
-    updatedAt: text('updated_at').notNull(),
+    /** 'tp' | 'rate' — toute la saisie tient là. */
+    issue: text('issue').notNull(),
+    /** Ordre d'affichage dans son lot. */
+    position: integer('position').notNull(),
+    creeLe: text('cree_le').notNull(),
   },
   (table) => [
-    index('tokens_wallet_position_idx').on(table.walletId, table.position),
-    index('tokens_day_idx').on(table.dayId),
+    index('tokens_wallet_phase_idx').on(table.walletId, table.phase),
+    index('tokens_jour_idx').on(table.walletId, table.jour),
   ],
+)
+
+/**
+ * Un trade réellement joué.
+ *
+ * Le résultat est `sortieSol - entreeSol`, et rien d'autre : frais de réseau et
+ * slippage sont déjà dans les montants. `issue` sert au taux au TP et au
+ * contrefactuel — ce que le test prédisait sur ces mêmes trades.
+ */
+export const trades = pgTable(
+  'trades',
+  {
+    id: text('id').primaryKey(),
+    walletId: text('wallet_id')
+      .notNull()
+      .references(() => wallets.id, { onDelete: 'cascade' }),
+    /** AAAA-MM-JJ */
+    date: text('date').notNull(),
+    nom: text('nom'),
+    mint: text('mint'),
+    /** SOL réellement sorti du portefeuille. */
+    entreeSol: doublePrecision('entree_sol').notNull(),
+    /** SOL réellement rentré. */
+    sortieSol: doublePrecision('sortie_sol').notNull(),
+    issue: text('issue').notNull(),
+    creeLe: text('cree_le').notNull(),
+  },
+  (table) => [index('trades_wallet_date_idx').on(table.walletId, table.date)],
 )
 
 export type WalletRow = typeof wallets.$inferSelect
 export type WalletInsert = typeof wallets.$inferInsert
+export type JourRow = typeof jours.$inferSelect
+export type JourInsert = typeof jours.$inferInsert
 export type TokenRow = typeof tokens.$inferSelect
 export type TokenInsert = typeof tokens.$inferInsert
-export type SettingsRow = typeof settings.$inferSelect
-export type WalletDayRow = typeof walletDays.$inferSelect
-export type WalletDayInsert = typeof walletDays.$inferInsert
+export type TradeRow = typeof trades.$inferSelect
+export type TradeInsert = typeof trades.$inferInsert

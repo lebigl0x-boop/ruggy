@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-import { toInputValue } from '@/lib/format'
-import { parseNumberFr } from '@/lib/validation'
+import { versChamp } from '@/lib/format'
+import { parseNombreFr } from '@/lib/validation'
 import { cn } from './cn'
 
 /**
@@ -39,13 +39,13 @@ export function NumberField({
   dataChamp?: string
   dataLigne?: string
 }) {
-  const [texte, setTexte] = useState(() => toInputValue(value))
+  const [texte, setTexte] = useState(() => versChamp(value))
   const actif = useRef(false)
 
   // On ne resynchronise que lorsque le champ n'a pas le curseur, pour ne
   // jamais écraser ce que l'utilisateur est en train de taper.
   useEffect(() => {
-    if (!actif.current) setTexte(toInputValue(value))
+    if (!actif.current) setTexte(versChamp(value))
   }, [value])
 
   return (
@@ -63,15 +63,15 @@ export function NumberField({
         }}
         onChange={(event) => {
           setTexte(event.target.value)
-          const lu = parseNumberFr(event.target.value)
+          const lu = parseNombreFr(event.target.value)
           onChange(normalize ? normalize(lu) : lu)
         }}
         onBlur={() => {
           actif.current = false
-          const lu = parseNumberFr(texte)
+          const lu = parseNombreFr(texte)
           // La valeur retenue peut différer de la saisie : on l'affiche.
           const valeur = normalize ? normalize(lu) : lu
-          setTexte(toInputValue(valeur))
+          setTexte(versChamp(valeur))
           onChange(valeur)
         }}
         className="w-full min-w-0 bg-transparent text-right tabular-nums outline-none placeholder:text-ink-3"

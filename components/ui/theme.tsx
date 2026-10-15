@@ -4,109 +4,77 @@ import { useEffect, useState } from 'react'
 
 import { cn } from './cn'
 
-/**
- * Le choix du thème.
- *
- * Trois états, pas deux : clair, sombre, et « système » — qui est le défaut et
- * ne pose rien sur la racine, laissant `prefers-color-scheme` trancher. Forcer
- * un choix dès la première visite priverait l'app de suivre le réglage de la
- * machine, qui bascule tout seul le soir.
- *
- * Le choix est relu avant le premier rendu par le script de `app/layout.tsx` :
- * sans lui, une page sombre s'afficherait en clair le temps que React démarre.
- */
+export type Theme = 'dark' | 'light'
 
+/** La clé du stockage local. Le script d'amorçage lit exactement la même. */
 export const CLE_THEME = 'ruggers-theme'
 
-type Theme = 'clair' | 'sombre'
-
-/** Ce que le document porte réellement, une fois le script d'amorçage passé. */
-function themeApplique(): Theme {
-  if (typeof document === 'undefined') return 'sombre'
-  const pose = document.documentElement.dataset.theme
-  if (pose === 'light') return 'clair'
-  if (pose === 'dark') return 'sombre'
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-    ? 'sombre'
-    : 'clair'
+/**
+ * Pose le thème choisi avant le premier rendu.
+ *
+ * Sans ce script, une page réglée en clair s'afficherait d'abord en sombre —
+ * le temps que React démarre et lise le stockage local. Il s'exécute de manière
+ * bloquante dans le `<head>` : quelques microsecondes contre un clignotement
+ * visible à chaque navigation.
+ */
+export function ScriptTheme() {
+  const script = `try{var t=localStorage.getItem('${CLE_THEME}');if(t==='light')document.documentElement.dataset.theme='light'}catch(e){}`
+  return <script dangerouslySetInnerHTML={{ __html: script }} />
 }
 
-export function SelecteurTheme({ replie }: { replie: boolean }) {
-  // Premier rendu identique à celui du serveur : on ne lit le document qu'une
-  // fois monté, sinon l'hydratation diverge.
-  const [theme, setTheme] = useState<Theme | null>(null)
+/** Bascule clair / sombre, mémorisée sur l'appareil. */
+export function BasculeTheme({ compact = false }: { compact?: boolean }) {
+  const [theme, setTheme] = useState<Theme>('dark')
 
+  // Le thème réel ne se lit qu'une fois monté : le rendu serveur ne connaît
+  // pas le stockage local, et prétendre le contraire ferait diverger
+  // l'hydratation.
   useEffect(() => {
-    setTheme(themeApplique())
+    setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
   }, [])
 
   function basculer() {
-    const cible: Theme = theme === 'sombre' ? 'clair' : 'sombre'
-    document.documentElement.dataset.theme = cible === 'clair' ? 'light' : 'dark'
+    const suivant: Theme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(suivant)
+    if (suivant === 'light') document.documentElement.dataset.theme = 'light'
+    else delete document.documentElement.dataset.theme
     try {
-      localStorage.setItem(CLE_THEME, cible === 'clair' ? 'light' : 'dark')
+      window.localStorage.setItem(CLE_THEME, suivant)
     } catch {
-      // Navigation privée, stockage refusé : le thème tiendra pour la session.
+      // Navigation privée ou quota plein : le thème vaut pour la session.
     }
-    setTheme(cible)
   }
-
-  const versLeClair = theme !== 'clair'
-  const libelle = versLeClair ? 'Thème clair' : 'Thème sombre'
 
   return (
     <button
       type="button"
       onClick={basculer}
-      title={libelle}
-      aria-label={libelle}
+      aria-label={theme === 'dark' ? 'Passer en thème clair' : 'Passer en thème sombre'}
+      title={theme === 'dark' ? 'Thème clair' : 'Thème sombre'}
       className={cn(
-        'flex w-full items-center rounded-[11px] bg-fill py-2 text-[12.5px] text-ink-2 transition hover:bg-hi hover:text-ink',
-        replie ? 'justify-center' : 'gap-2.5 px-3',
+        'flex items-center gap-2 rounded-[8px] text-ink-3 transition hover:bg-fill hover:text-ink',
+        compact ? 'h-7 w-7 justify-center' : 'w-full px-2.5 py-2 text-[12px]',
       )}
     >
-      {/* Tant que le thème n'est pas lu, on garde l'emplacement sans rien
-          affirmer : une icône qui change au montage se verrait. */}
-      <span className="grid h-[15px] w-[15px] shrink-0 place-items-center">
-        {theme === null ? null : versLeClair ? <SoleilIcon /> : <LuneIcon />}
-      </span>
-      {replie ? null : <span>{theme === null ? '' : libelle}</span>}
+      {theme === 'dark' ? <IconeSoleil /> : <IconeLune />}
+      {compact ? null : <span>{theme === 'dark' ? 'Thème clair' : 'Thème sombre'}</span>}
     </button>
   )
 }
 
-function SoleilIcon() {
+function IconeSoleil() {
   return (
-    <svg
-      viewBox="0 0 20 20"
-      className="h-[15px] w-[15px]"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      aria-hidden
-      focusable="false"
-    >
-      <circle cx="10" cy="10" r="3.4" />
-      <path d="M10 2.2v1.9M10 15.9v1.9M17.8 10h-1.9M4.1 10H2.2M15.5 4.5l-1.3 1.3M5.8 14.2l-1.3 1.3M15.5 15.5l-1.3-1.3M5.8 5.8 4.5 4.5" />
+    <svg viewBox="0 0 20 20" className="h-[15px] w-[15px] shrink-0" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" aria-hidden>
+      <circle cx="10" cy="10" r="3.5" />
+      <path d="M10 2.5v1.8M10 15.7v1.8M17.5 10h-1.8M4.3 10H2.5M15.3 4.7l-1.3 1.3M6 14l-1.3 1.3M15.3 15.3 14 14M6 6 4.7 4.7" />
     </svg>
   )
 }
 
-function LuneIcon() {
+function IconeLune() {
   return (
-    <svg
-      viewBox="0 0 20 20"
-      className="h-[15px] w-[15px]"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      focusable="false"
-    >
-      <path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9z" />
+    <svg viewBox="0 0 20 20" className="h-[15px] w-[15px] shrink-0" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round" aria-hidden>
+      <path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z" />
     </svg>
   )
 }

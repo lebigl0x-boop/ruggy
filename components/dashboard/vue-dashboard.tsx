@@ -1,432 +1,323 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-import {
-  cancelTestAction,
-  concludeTestAction,
-  reopenTestAction,
-  setWalletStatusAction,
-  startTestAction,
-} from '@/app/actions'
-import { CourbePnl, type PointCourbe } from '@/components/charts/courbe-pnl'
-import { formatEur, formatPercent, formatSol } from '@/lib/format'
-import {
-  avancement,
-  parEtat,
-  type LigneWallet,
-  type Portefeuille,
-} from '@/lib/portefeuille'
-import type { WalletStatus } from '@/lib/repo/types'
+import { adresseCourte, formatPct, formatSol } from '@/lib/format'
+import { LIBELLE_PHASE, PHASES, type Phase } from '@/lib/repo/types'
+import type { Courbes, ResumeWallet, Totaux } from '@/lib/resume'
+import { Courbe, MiniCourbe } from '../charts/courbe'
 import { cn } from '../ui/cn'
-import { Bloc } from '../ui/page'
-import { TagBadge } from '../ui/tag-badge'
+import { Ecran } from '../ui/ecran'
+import { PhasePoint } from '../ui/phase-badge'
+import { Bande, Chiffre, Panneau, Rangee, Tableau } from '../ui/table'
+import { NouveauWallet } from '../wallets/nouveau-wallet'
+
+type Filtre = 'tous' | Phase
+type Vue = 'tableau' | 'cartes'
 
 /**
- * Le tableau de bord : où en est le portefeuille, et ce qui attend une
- * décision.
+ * Le tableau de bord.
  *
- * Deux étages. En haut les chiffres — le net de la phase de test, la courbe,
- * et quatre mesures. En bas l'entonnoir, qui est la méthode rendue visible :
- * screening → test → validé ou écarté. Un wallet prêt à être tranché remonte
- * en tête de sa colonne et le dit, au lieu d'attendre qu'on l'ouvre pour le
- * découvrir.
+ * En tête, les trois totaux — et ils restent trois. Additionner un résultat
+ * compté et deux résultats simulés donnerait un nombre que rien ne vérifie.
  *
- * Le changement d'état se fait depuis la carte. Le glisser-déposer rendrait
- * le même service pour dix fois le travail — il viendra si le reste tient.
+ * En dessous, les wallets. En tableau par défaut : on vient ici pour comparer,
+ * et rien ne bat une colonne de chiffres alignés. Les cartes restent à un clic
+ * pour quand on cherche une forme de courbe plutôt qu'une valeur.
  */
-
-const COLONNES: readonly { statut: WalletStatus; titre: string }[] = [
-  { statut: 'screening', titre: 'Screening' },
-  { statut: 'test', titre: 'En test' },
-  { statut: 'valide', titre: 'Validés' },
-  { statut: 'trade', titre: 'Actifs' },
-  { statut: 'rejete', titre: 'Écartés' },
-]
-
-/** La pastille de la colonne reprend celle du statut, en tête de pile. */
-const POINT_COLONNE: Record<WalletStatus, string> = {
-  screening: 'bg-gray',
-  test: 'bg-blue',
-  valide: 'bg-green',
-  trade: 'bg-orange',
-  rejete: 'bg-ink-3',
-}
-
-export function VueDashboard({ vue }: { vue: Portefeuille }) {
-  const router = useRouter()
-  const [enCours, setEnCours] = useState<string | null>(null)
-  const [erreur, setErreur] = useState<string | null>(null)
-
-  const colonnes = parEtat(vue.lignes)
-  const ecartes = vue.tokensTest - vue.tokensPris
-
-  const courbe: PointCourbe[] = vue.courbe.map((point) => ({
-    day: point.day,
-    pnlSol: point.pnlSol,
-    cumulSol: point.cumulSol,
-  }))
-
-  /** Toute transition passe par le serveur, qui seul juge si elle est permise. */
-  function agir(id: string, appel: () => Promise<{ ok: boolean; message?: string }>) {
-    setEnCours(id)
-    setErreur(null)
-    void appel()
-      .then((resultat) => {
-        if (!resultat.ok) setErreur(resultat.message ?? 'Action impossible.')
-        else router.refresh()
-      })
-      .finally(() => setEnCours(null))
-  }
-
-  return (
-    <div className="grid gap-4">
-      {/* Le résultat et sa courbe : côte à côte dès qu'il y a la place. */}
-      <div className="grid items-start gap-2 xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
-        <div className="rounded-card border border-separator bg-card px-5 py-4">
-          <p className="text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
-            Net de la phase de test
-          </p>
-          <p
-            className={cn(
-              'mt-1 text-[clamp(26px,7vw,34px)] leading-none font-bold tracking-tight tabular-nums',
-              vue.netTestSol > 0
-                ? 'text-green'
-                : vue.netTestSol < 0
-                  ? 'text-red'
-                  : 'text-ink-2',
-            )}
-          >
-            {formatSol(vue.netTestSol)}
-          </p>
-          <p className="mt-2 text-[11.5px] text-ink-3 tabular-nums">
-            {vue.netTestEur !== null ? `${formatEur(vue.netTestEur)} · ` : ''}
-            échantillon screening {formatSol(vue.netScreeningSol)}, tenu à part
-          </p>
-        </div>
-
-        <Bloc titre="Résultat cumulé" className="min-w-0">
-          <div className="px-3 pt-3 pb-2">
-            <CourbePnl points={courbe} />
-          </div>
-        </Bloc>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <Tuile
-          label="Taux à l’objectif"
-          valeur={vue.tokensNotes > 0 ? formatPercent(vue.taux) : '—'}
-          detail={`${vue.hits} sur ${vue.tokensNotes} notés`}
-        />
-        <Tuile
-          label="Tokens pris"
-          valeur={String(vue.tokensPris)}
-          detail={ecartes > 0 ? `${ecartes} écartés` : `sur ${vue.tokensTest} relevés`}
-        />
-        <Tuile
-          label="Journées"
-          valeur={String(vue.joursObserves)}
-          detail={`${vue.parStatut.test} ${vue.parStatut.test > 1 ? 'wallets en test' : 'wallet en test'}`}
-        />
-        <Tuile
-          label="Meilleur wallet"
-          valeur={vue.meilleur !== null ? formatSol(vue.meilleur.netSol) : '—'}
-          detail={vue.meilleur?.label ?? 'Aucun token noté'}
-          ton={
-            vue.meilleur === null
-              ? undefined
-              : vue.meilleur.netSol > 0
-                ? 'vert'
-                : 'rouge'
-          }
-        />
-      </div>
-
-      {erreur !== null ? (
-        <p className="rounded-card bg-card px-4 py-3 text-[14px] text-red">{erreur}</p>
-      ) : null}
-
-      <section className="grid gap-2">
-        <h2 className="px-1 text-[11px] tracking-[0.07em] text-ink-2 uppercase">
-          Entonnoir
-        </h2>
-
-        {/* Les colonnes s'empilent plutôt que de défiler latéralement : à
-            quatre de front sur un téléphone, aucune carte n'est lisible. */}
-        <div className="grid items-start gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          {COLONNES.map(({ statut, titre }) => (
-            <Colonne
-              key={statut}
-              statut={statut}
-              titre={titre}
-              lignes={colonnes[statut]}
-              enCours={enCours}
-              onStart={(id) => agir(id, () => startTestAction(id))}
-              onConclude={(id, verdict) => agir(id, () => concludeTestAction(id, verdict))}
-              onCancel={(id) => agir(id, () => cancelTestAction(id))}
-              onReopen={(id) => agir(id, () => reopenTestAction(id))}
-              onClassify={(id, cible) => agir(id, () => setWalletStatusAction(id, cible))}
-            />
-          ))}
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function Tuile({
-  label,
-  valeur,
-  detail,
-  ton,
+export function VueDashboard({
+  resumes,
+  totaux,
+  courbes,
+  adresses,
 }: {
-  label: string
-  valeur: string
-  detail: string
-  ton?: 'vert' | 'rouge'
+  resumes: readonly ResumeWallet[]
+  totaux: Totaux
+  courbes: Courbes
+  adresses: readonly string[]
 }) {
-  return (
-    <div className="rounded-card border border-separator bg-card px-4 py-3.5">
-      <p className="truncate text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
-        {label}
-      </p>
-      <p
-        className={cn(
-          'mt-1.5 text-[21px] leading-tight font-semibold tracking-tight tabular-nums',
-          ton === 'vert' ? 'text-green' : ton === 'rouge' ? 'text-red' : 'text-ink',
-        )}
-      >
-        {valeur}
-      </p>
-      <p className="mt-0.5 truncate text-[11.5px] text-ink-3">{detail}</p>
-    </div>
-  )
-}
+  const [filtre, setFiltre] = useState<Filtre>('tous')
+  const [vue, setVue] = useState<Vue>('tableau')
 
-function Colonne({
-  statut,
-  titre,
-  lignes,
-  enCours,
-  onStart,
-  onConclude,
-  onCancel,
-  onReopen,
-  onClassify,
-}: {
-  statut: WalletStatus
-  titre: string
-  lignes: readonly LigneWallet[]
-  enCours: string | null
-  onStart: (id: string) => void
-  onConclude: (id: string, verdict: 'valide' | 'rejete') => void
-  onCancel: (id: string) => void
-  onReopen: (id: string) => void
-  onClassify: (id: string, cible: WalletStatus) => void
-}) {
-  return (
-    <section className="rounded-card border border-separator bg-card p-2.5">
-      <h3 className="flex items-center gap-2 px-1.5 pb-2 text-[12.5px] font-semibold text-ink-2">
-        <span
-          aria-hidden
-          className={cn('h-[7px] w-[7px] shrink-0 rounded-full', POINT_COLONNE[statut])}
-        />
-        {titre}
-        <span className="ml-auto text-[11.5px] text-ink-3 tabular-nums">
-          {lignes.length}
-        </span>
-      </h3>
-
-      {lignes.length === 0 ? (
-        <p className="px-1 pb-1 text-[12px] text-ink-3">Vide</p>
-      ) : (
-        <div className="grid gap-1.5">
-          {lignes.map((ligne) => (
-            <Carte
-              key={ligne.id}
-              ligne={ligne}
-              occupe={enCours === ligne.id}
-              onStart={onStart}
-              onConclude={onConclude}
-              onCancel={onCancel}
-              onReopen={onReopen}
-              onClassify={onClassify}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function Carte({
-  ligne,
-  occupe,
-  onStart,
-  onConclude,
-  onCancel,
-  onReopen,
-  onClassify,
-}: {
-  ligne: LigneWallet
-  occupe: boolean
-  onStart: (id: string) => void
-  onConclude: (id: string, verdict: 'valide' | 'rejete') => void
-  onCancel: (id: string) => void
-  onReopen: (id: string) => void
-  onClassify: (id: string, cible: WalletStatus) => void
-}) {
-  const part = avancement(ligne)
-  const sorti = ligne.status === 'valide' || ligne.status === 'rejete'
+  const visibles = resumes.filter((r) => filtre === 'tous' || r.phase === filtre)
+  const total = PHASES.reduce((somme, phase) => somme + totaux.parPhase[phase], 0)
 
   return (
-    <article
-      className={cn(
-        'rounded-[11px] border border-separator bg-card-2 p-2.5 transition',
-        occupe && 'opacity-50',
-        // Un wallet prêt à être tranché s'entoure d'ocre : c'est la seule
-        // chose de cet écran sur laquelle il faut agir.
-        ligne.verdictDisponible && 'border-orange/45',
-      )}
+    <Ecran
+      titre="Wallets"
+      sousTitre={`${resumes.length} ${resumes.length > 1 ? 'wallets suivis' : 'wallet suivi'}`}
+      actions={<NouveauWallet adressesExistantes={adresses} />}
     >
-      <Link
-        href={`/wallets/${ligne.id}`}
-        className="flex min-w-0 items-center gap-2"
-      >
-        <span className="truncate text-[12px] font-semibold tracking-[0.015em] uppercase hover:underline">
-          {ligne.label}
-        </span>
-        <TagBadge tag={ligne.tag} className="ml-auto" />
-      </Link>
+      <Bande>
+        <Chiffre
+          fort
+          label="Réel · trade"
+          valeur={formatSol(totaux.reel)}
+          detail={`${totaux.trades} trade${totaux.trades > 1 ? 's' : ''} joué${totaux.trades > 1 ? 's' : ''}`}
+          ton={totaux.reel > 0 ? 'vert' : totaux.reel < 0 ? 'rouge' : undefined}
+        />
+        <Chiffre
+          label="Simulé · test"
+          valeur={formatSol(totaux.test)}
+          detail={`${totaux.jours} journée${totaux.jours > 1 ? 's' : ''} relevée${totaux.jours > 1 ? 's' : ''}`}
+        />
+        <Chiffre
+          label="Simulé · screening"
+          valeur={formatSol(totaux.screening)}
+          detail="échantillons à la main"
+        />
+        <Chiffre label="Wallets" valeur={String(total)} detail="suivis" />
+        <Chiffre
+          label="En test"
+          valeur={String(totaux.parPhase.test)}
+          detail={`${totaux.parPhase.screening} en screening`}
+        />
+        <Chiffre
+          label="En trade"
+          valeur={String(totaux.parPhase.trade)}
+          detail={`${totaux.parPhase.archive} archivés`}
+        />
+      </Bande>
 
-      <div className="mt-2 flex items-baseline justify-between gap-2">
-        <span className="truncate font-mono text-[11.5px] text-ink-3">
-          {avancementTexte(ligne)}
-        </span>
-        <span
-          className={cn(
-            'shrink-0 font-mono text-[11.5px] font-semibold tabular-nums',
-            ligne.n === 0
-              ? 'text-ink-3'
-              : ligne.netSol > 0
-                ? 'text-green'
-                : ligne.netSol < 0
-                  ? 'text-red'
-                  : 'text-ink-2',
-          )}
-        >
-          {ligne.n > 0 ? formatSol(ligne.netSol) : '—'}
-        </span>
-      </div>
-
-      {/* La barre ne vaut que pendant la phase : un wallet sorti de
-          l'entonnoir n'a plus de chemin à parcourir. */}
-      {sorti ? null : (
-        <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-hi">
-          <div
-            className={cn('h-full rounded-full', part >= 1 ? 'bg-orange' : 'bg-ink-3')}
-            style={{ width: `${part * 100}%` }}
-          />
+      {courbes.reel.length > 0 || courbes.test.length > 0 ? (
+        <div className="mb-2 grid gap-2 xl:grid-cols-2">
+          <Panneau titre="Réel cumulé · trade" className="mb-0">
+            <div className="px-3 py-2.5">
+              <Courbe points={courbes.reel} hauteur={104} />
+            </div>
+          </Panneau>
+          <Panneau titre="Simulé cumulé · test" className="mb-0">
+            <div className="px-3 py-2.5">
+              <Courbe points={courbes.test} hauteur={104} />
+            </div>
+          </Panneau>
         </div>
-      )}
-
-      {ligne.verdictDisponible ? (
-        <p className="mt-1.5 text-[11.5px] font-semibold text-orange">
-          Prêt à trancher
-        </p>
       ) : null}
 
-      <div className="mt-2 flex flex-wrap gap-1">
-        {ligne.status === 'screening' ? (
-          <Action onClick={() => onStart(ligne.id)} occupe={occupe} principal>
-            Lancer le test
-          </Action>
-        ) : null}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <Pastille
+          actif={filtre === 'tous'}
+          onClick={() => setFiltre('tous')}
+          label="Tous"
+          compte={total}
+        />
+        {PHASES.filter((phase) => totaux.parPhase[phase] > 0).map((phase) => (
+          <Pastille
+            key={phase}
+            actif={filtre === phase}
+            onClick={() => setFiltre(filtre === phase ? 'tous' : phase)}
+            label={LIBELLE_PHASE[phase]}
+            compte={totaux.parPhase[phase]}
+            phase={phase}
+          />
+        ))}
 
-        {ligne.status === 'test' ? (
-          <>
-            <Action
-              onClick={() => onConclude(ligne.id, 'valide')}
-              occupe={occupe || !ligne.verdictDisponible}
-              principal={ligne.verdictDisponible}
+        <div className="ml-auto flex gap-1 rounded-full bg-fill p-0.5">
+          {(['tableau', 'cartes'] as const).map((cible) => (
+            <button
+              key={cible}
+              type="button"
+              onClick={() => setVue(cible)}
+              aria-pressed={vue === cible}
+              className={cn(
+                'rounded-full px-3 py-1 text-[12px] font-medium transition',
+                vue === cible ? 'bg-segment text-ink' : 'text-ink-2 hover:text-ink',
+              )}
             >
-              Valider
-            </Action>
-            <Action
-              onClick={() => onConclude(ligne.id, 'rejete')}
-              occupe={occupe || !ligne.verdictDisponible}
-            >
-              Écarter
-            </Action>
-            {/* Toujours disponible : un test lancé par erreur ne doit pas
-                attendre quatre journées pour être défait. */}
-            <Action onClick={() => onCancel(ligne.id)} occupe={occupe}>
-              Annuler le test
-            </Action>
-          </>
-        ) : null}
-
-        {sorti ? (
-          <>
-            <Action onClick={() => onReopen(ligne.id)} occupe={occupe}>
-              Rouvrir
-            </Action>
-            <Action
-              onClick={() =>
-                onClassify(ligne.id, ligne.status === 'valide' ? 'rejete' : 'valide')
-              }
-              occupe={occupe}
-            >
-              {ligne.status === 'valide' ? 'Écarter' : 'Valider'}
-            </Action>
-          </>
-        ) : null}
+              {cible === 'tableau' ? 'Tableau' : 'Cartes'}
+            </button>
+          ))}
+        </div>
       </div>
-    </article>
+
+      {visibles.length === 0 ? (
+        <div className="rounded-card bg-card px-4 py-12 text-center">
+          <p className="text-[15px] text-ink-2">
+            {resumes.length === 0 ? 'Aucun wallet suivi' : 'Aucun wallet dans cette phase'}
+          </p>
+          <p className="mt-1 text-[12.5px] text-ink-3">
+            {resumes.length === 0
+              ? 'Ajoutez-en un pour commencer le screening.'
+              : 'Changez de filtre pour voir les autres.'}
+          </p>
+        </div>
+      ) : vue === 'tableau' ? (
+        <Panneau>
+          <Tableau
+            entetes={[
+              { label: 'Wallet', classe: 'min-w-[180px] flex-1' },
+              { label: 'Phase', classe: 'w-[110px]' },
+              { label: 'Avancement', classe: 'w-[110px] text-right' },
+              { label: 'Lignes', classe: 'w-[70px] text-right' },
+              { label: 'Taux au TP', classe: 'w-[90px] text-right' },
+              { label: 'Rendement', classe: 'w-[95px] text-right' },
+              { label: 'Résultat', classe: 'w-[110px] text-right' },
+              { label: 'Courbe', classe: 'w-[90px]' },
+            ]}
+          >
+            {visibles.map((r) => (
+              <LigneWallet key={r.id} resume={r} />
+            ))}
+          </Tableau>
+        </Panneau>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {visibles.map((r) => (
+            <Dossier key={r.id} resume={r} />
+          ))}
+        </div>
+      )}
+    </Ecran>
   )
 }
 
-/** Ce qu'il reste à faire avant de pouvoir trancher, en une ligne. */
-function avancementTexte(ligne: LigneWallet): string {
-  if (ligne.status === 'screening') {
-    return `${ligne.n}/${ligne.seuilAnalyse} notés`
-  }
-  if (ligne.status === 'test') {
-    return ligne.verdictDisponible
-      ? 'à conclure'
-      : `j${ligne.joursObserves}/${ligne.joursMinimum}`
-  }
-  return `${ligne.n} tokens · ${ligne.n > 0 ? formatPercent(ligne.taux) : '—'}`
-}
-
-function Action({
+function Pastille({
+  actif,
   onClick,
-  occupe,
-  principal = false,
-  children,
+  label,
+  compte,
+  phase,
 }: {
+  actif: boolean
   onClick: () => void
-  occupe: boolean
-  principal?: boolean
-  children: React.ReactNode
+  label: string
+  compte: number
+  phase?: Phase
 }) {
   return (
     <button
       type="button"
+      aria-pressed={actif}
       onClick={onClick}
-      disabled={occupe}
       className={cn(
-        'rounded-full px-2.5 py-1 text-[11.5px] font-medium transition',
-        occupe
-          ? 'cursor-not-allowed bg-fill text-ink-3'
-          : principal
-            ? 'bg-accent text-accent-ink hover:bg-white'
-            : 'bg-hi text-ink-2 hover:text-ink',
+        'flex items-center gap-2 rounded-full px-3 py-1.5 text-[12.5px] transition active:scale-95',
+        actif ? 'bg-accent text-accent-ink' : 'bg-card text-ink-2 hover:bg-card-2',
       )}
     >
-      {children}
+      {phase ? <PhasePoint phase={phase} /> : null}
+      {label}
+      <span className="font-semibold tabular-nums">{compte}</span>
     </button>
   )
+}
+
+/** Une ligne du tableau : tout ce qui sert à comparer, et rien de plus. */
+function LigneWallet({ resume }: { resume: ResumeWallet }) {
+  const avancement = resume.avancement
+    ? `${resume.avancement.fait}/${resume.avancement.repere}`
+    : '—'
+
+  return (
+    <Link href={`/wallets/${resume.id}`} className="block">
+      <Rangee survol className="cursor-pointer">
+        <span className="flex min-w-[180px] flex-1 items-center gap-2">
+          <span className="truncate font-medium text-ink">{resume.nom}</span>
+          <span className="hidden font-mono text-[11px] text-ink-3 sm:inline">
+            {adresseCourte(resume.adresse)}
+          </span>
+          {resume.alerteArret ? (
+            <span className="shrink-0 rounded-full bg-orange-soft px-1.5 py-0.5 text-[10px] font-semibold text-orange">
+              arrêt
+            </span>
+          ) : null}
+        </span>
+
+        <span className="flex w-[110px] shrink-0 items-center gap-1.5 text-ink-2">
+          <PhasePoint phase={resume.phase} />
+          {LIBELLE_PHASE[resume.phase]}
+        </span>
+
+        <span className="w-[110px] shrink-0 text-right text-ink-3 tabular-nums">
+          {avancement}
+        </span>
+        <span className="w-[70px] shrink-0 text-right text-ink-2 tabular-nums">
+          {resume.lignes}
+        </span>
+        <span className="w-[90px] shrink-0 text-right text-ink-2 tabular-nums">
+          {resume.lignes > 0 ? formatPct(resume.tauxTp) : '—'}
+        </span>
+        <span className="w-[95px] shrink-0 text-right text-ink-2 tabular-nums">
+          {resume.rendement !== null ? formatPct(resume.rendement, { signe: true }) : '—'}
+        </span>
+
+        <span
+          className={cn(
+            'w-[110px] shrink-0 text-right font-semibold tabular-nums',
+            resume.lignes === 0
+              ? 'text-ink-3'
+              : resume.resultat > 0
+                ? 'text-green'
+                : resume.resultat < 0
+                  ? 'text-red'
+                  : 'text-ink-2',
+          )}
+        >
+          {resume.lignes > 0 ? formatSol(resume.resultat) : '—'}
+          <span className="ml-1 text-[10px] font-normal text-ink-3">
+            {resume.reel ? 'réel' : 'sim.'}
+          </span>
+        </span>
+
+        <span className="w-[90px] shrink-0">
+          <MiniCourbe points={resume.courbe} />
+        </span>
+      </Rangee>
+    </Link>
+  )
+}
+
+/** Le dossier d'un wallet : ce qu'il faut pour décider s'il faut l'ouvrir. */
+function Dossier({ resume }: { resume: ResumeWallet }) {
+  return (
+    <Link
+      href={`/wallets/${resume.id}`}
+      className="group block rounded-card bg-card p-3 transition hover:bg-card-2 active:scale-[0.99]"
+    >
+      <div className="flex items-center gap-2">
+        <PhasePoint phase={resume.phase} />
+        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold group-hover:underline">
+          {resume.nom}
+        </span>
+        <span className="shrink-0 text-[11px] text-ink-3">{LIBELLE_PHASE[resume.phase]}</span>
+      </div>
+
+      <p
+        className={cn(
+          'mt-2 text-[24px] leading-none font-bold tracking-[-0.02em] tabular-nums',
+          resume.resultat > 0 ? 'text-green' : resume.resultat < 0 ? 'text-red' : 'text-ink-2',
+        )}
+      >
+        {formatSol(resume.resultat)}
+      </p>
+      <p className="mt-1 text-[11px] text-ink-3">
+        {resume.reel ? 'réel' : 'simulé'} · {cle(resume)}
+      </p>
+
+      <div className="mt-2">
+        <MiniCourbe points={resume.courbe} />
+      </div>
+
+      {resume.alerteArret ? (
+        <p className="mt-1.5 text-[11px] font-medium text-orange">Règle d’arrêt</p>
+      ) : null}
+    </Link>
+  )
+}
+
+/** L'info clé, propre à la phase en cours. */
+function cle(resume: ResumeWallet): string {
+  if (resume.reel) {
+    return resume.rendement !== null
+      ? `${formatPct(resume.rendement, { signe: true })} de rendement`
+      : 'aucun trade'
+  }
+
+  if (resume.avancement === null) return `${resume.lignes} lignes`
+
+  const { fait, repere } = resume.avancement
+  const unite = resume.phase === 'test' ? 'jour' : 'token'
+  const avancement = `${fait}/${repere} ${unite}${fait > 1 ? 's' : ''}`
+
+  return resume.lignes > 0 ? `${avancement} · ${formatPct(resume.tauxTp)} au TP` : avancement
 }

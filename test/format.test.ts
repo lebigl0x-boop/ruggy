@@ -1,131 +1,94 @@
 import { describe, expect, it } from 'vitest'
+
 import {
-  GMGN_URL,
+  adresseCourte,
+  formatDate,
+  formatJour,
+  formatPct,
+  formatSol,
   PADRE_URL,
   SOLSCAN_URL,
-  formatDateFr,
-  formatEur,
-  formatMinutes,
-  formatPercent,
-  formatPercentExact,
-  formatSol,
-  shortAddress,
-  toInputValue,
+  versChamp,
 } from '@/lib/format'
 
-/** Remplace les espaces insécables pour écrire des attentes lisibles. */
-const plain = (s: string) => s.replace(/[  ]/g, ' ')
+// Les espaces de `Intl` en français sont insécables : on compare sur une
+// version normalisée plutôt que de coller des caractères invisibles dans les
+// attentes.
+const sansEspaces = (texte: string) => texte.replace(/\s/g, ' ')
 
 describe('formatSol', () => {
-  it('signe et met en forme à trois décimales', () => {
-    expect(plain(formatSol(0.14))).toBe('+0,140 SOL')
-    expect(plain(formatSol(-0.093))).toBe('−0,093 SOL')
+  it('signe les résultats et garde trois décimales', () => {
+    expect(sansEspaces(formatSol(0.142))).toBe('+0,142 SOL')
+    expect(sansEspaces(formatSol(-0.058))).toBe('−0,058 SOL')
   })
 
-  it('n’affiche pas de signe négatif sur un zéro arrondi', () => {
-    expect(plain(formatSol(-0.0000001))).toBe('0,000 SOL')
+  it('n’affiche pas de signe sur un zéro', () => {
+    expect(sansEspaces(formatSol(0))).toBe('0,000 SOL')
   })
 
-  it('peut masquer le signe', () => {
-    expect(plain(formatSol(0.1, { sign: false }))).toBe('0,100 SOL')
+  it('rabat à zéro ce qui est sous le demi-millième', () => {
+    // Un « +0,000 » vert ferait croire à un gain là où il n'y a rien.
+    expect(sansEspaces(formatSol(0.0004))).toBe('0,000 SOL')
+    expect(sansEspaces(formatSol(-0.0004))).toBe('0,000 SOL')
+  })
+
+  it('peut se passer du signe', () => {
+    expect(sansEspaces(formatSol(0.142, { signe: false }))).toBe('0,142 SOL')
   })
 })
 
-describe('formatPercent', () => {
+describe('formatPct', () => {
   it('arrondit à l’entier par défaut', () => {
-    expect(plain(formatPercent(41.566))).toBe('42 %')
+    expect(sansEspaces(formatPct(60))).toBe('60 %')
+    expect(sansEspaces(formatPct(28.97))).toBe('29 %')
   })
 
   it('accepte des décimales', () => {
-    expect(plain(formatPercent(41.566, { decimals: 1 }))).toBe('41,6 %')
+    expect(sansEspaces(formatPct(28.97, { decimales: 1 }))).toBe('29,0 %')
   })
 
-  it('signe à la demande', () => {
-    expect(plain(formatPercent(100, { sign: true }))).toBe('+100 %')
-    expect(plain(formatPercent(-30, { sign: true }))).toBe('−30 %')
-  })
-})
-
-describe('formatEur', () => {
-  it('met en forme un montant', () => {
-    expect(plain(formatEur(19.4))).toBe('+19,40 €')
-    expect(plain(formatEur(-5))).toBe('−5,00 €')
+  it('signe à la demande, et marque toujours le négatif', () => {
+    expect(sansEspaces(formatPct(12, { signe: true }))).toBe('+12 %')
+    expect(sansEspaces(formatPct(-12))).toBe('−12 %')
   })
 })
 
-describe('formatMinutes', () => {
-  it('reste en minutes sous une heure', () => {
-    expect(plain(formatMinutes(12))).toBe('12 min')
-    expect(plain(formatMinutes(2.5))).toBe('2,5 min')
+describe('adresseCourte', () => {
+  it('garde quatre caractères de chaque côté', () => {
+    expect(adresseCourte('ABCD1234567890WXYZ')).toBe('ABCD…WXYZ')
   })
 
-  it('passe en heures au-delà', () => {
-    expect(plain(formatMinutes(90))).toBe('1 h 30')
-    expect(plain(formatMinutes(120))).toBe('2 h')
+  it('laisse une adresse courte telle quelle', () => {
+    expect(adresseCourte('ABCD123')).toBe('ABCD123')
   })
 })
 
-describe('shortAddress', () => {
-  it('garde 4 caractères de chaque côté', () => {
-    expect(shortAddress('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')).toBe('Toke…Q5DA')
+describe('dates', () => {
+  it('formate une date courte', () => {
+    expect(formatDate('2026-10-15')).toContain('2026')
   })
 
-  it('laisse les adresses courtes intactes', () => {
-    expect(shortAddress('abcd')).toBe('abcd')
-  })
-})
-
-describe('formatDateFr', () => {
-  it('écrit la date en français', () => {
-    expect(plain(formatDateFr('2026-10-05'))).toContain('oct')
-    expect(plain(formatDateFr('2026-10-05'))).toContain('2026')
-  })
-
-  it('laisse passer une date illisible', () => {
-    expect(formatDateFr('pas-une-date')).toBe('pas-une-date')
+  it('rend la chaîne telle quelle si elle est illisible', () => {
+    expect(formatDate('pas-une-date')).toBe('pas-une-date')
+    expect(formatJour('pas-une-date')).toBe('pas-une-date')
   })
 })
 
-describe('toInputValue', () => {
-  it('réécrit le point en virgule', () => {
-    expect(toInputValue(0.003)).toBe('0,003')
+describe('versChamp', () => {
+  it('rend la virgule décimale française', () => {
+    expect(versChamp(0.05)).toBe('0,05')
   })
 
-  it('renvoie un champ vide pour une valeur absente', () => {
-    expect(toInputValue(null)).toBe('')
-    expect(toInputValue(undefined)).toBe('')
+  it('rend une chaîne vide pour une absence', () => {
+    expect(versChamp(null)).toBe('')
+    expect(versChamp(undefined)).toBe('')
+    expect(versChamp(Number.NaN)).toBe('')
   })
 })
 
 describe('liens externes', () => {
-  it('pointe vers Solscan et GMGN', () => {
-    expect(SOLSCAN_URL('ABC')).toBe('https://solscan.io/account/ABC')
-    expect(GMGN_URL('ABC')).toBe('https://gmgn.ai/sol/address/ABC')
-  })
-
-  it('construit la page de trade Padre depuis la seule adresse du token', () => {
-    expect(PADRE_URL('DW2EsD7bUL13VFQHcZ2XUJnQm7en6feLEW4f4Ka2pNLy')).toBe(
-      'https://trade.padre.gg/trade/solana/DW2EsD7bUL13VFQHcZ2XUJnQm7en6feLEW4f4Ka2pNLy',
-    )
-  })
-
-  it('échappe ce qu’on lui donne : un CA vient d’un collage, pas d’un contrat', () => {
-    expect(PADRE_URL('../evil?x=1')).toBe(
-      'https://trade.padre.gg/trade/solana/..%2Fevil%3Fx%3D1',
-    )
-  })
-})
-
-describe('formatPercentExact', () => {
-  it('n’affiche pas de décimale quand il n’y en a pas', () => {
-    expect(plain(formatPercentExact(-90, { sign: true }))).toBe('−90 %')
-  })
-
-  it('garde la décimale saisie', () => {
-    expect(plain(formatPercentExact(-40.5, { sign: true }))).toBe('−40,5 %')
-  })
-
-  it('s’arrête à deux décimales', () => {
-    expect(plain(formatPercentExact(33.333))).toBe('33,33 %')
+  it('échappe ce qu’on lui donne', () => {
+    expect(PADRE_URL('a b')).toBe('https://trade.padre.gg/trade/solana/a%20b')
+    expect(SOLSCAN_URL('a b')).toBe('https://solscan.io/account/a%20b')
   })
 })

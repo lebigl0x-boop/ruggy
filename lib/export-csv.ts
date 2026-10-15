@@ -1,16 +1,10 @@
 /**
- * Export CSV d'un wallet : une ligne par token, tous lots confondus.
+ * Export CSV d'un wallet : ses réglages, ses lancements et ses trades.
  *
- * Le grain est le token et non la journée, et c'est délibéré. Un agrégat par
- * journée se recalcule depuis les tokens ; l'inverse, non. Exporter les
- * journées reviendrait à livrer un résumé en se privant de ce qui permet de
- * le vérifier.
- *
- * Pour la même raison, le fichier ne porte **aucune colonne calculée** : ni
- * résultat en SOL, ni cumul, ni « à l'objectif ». Un lecteur qui reçoit les
- * réglages et les saisies peut tout recalculer — et détecter une erreur au
- * passage. Un lecteur qui reçoit des résultats tout faits ne peut que les
- * croire.
+ * Le fichier ne porte **aucune colonne calculée** : ni résultat, ni cumul, ni
+ * taux. Un lecteur qui reçoit les réglages et les saisies peut tout recalculer
+ * — et détecter une erreur au passage. Un lecteur qui reçoit des résultats
+ * tout faits ne peut que les croire.
  *
  * Les trois lots cohabitent dans le même fichier, séparés par la colonne
  * `phase`. C'est la règle de toute l'app : screening, test et trade ne
@@ -20,20 +14,15 @@
  * Fonctions pures : pas de base, pas de date « maintenant », pas de React.
  */
 
-import type { GlobalSettings, WalletWithTokens } from './repo/types'
+import type { WalletComplet } from './repo/types'
 
 /** Les colonnes du fichier, dans l'ordre. */
 const COLONNES = [
   'phase',
   'jour',
-  'etat_jour',
-  'position',
   'nom',
   'mint',
-  'gain_pct',
-  'perte_pct',
-  'delai_min',
-  'pris',
+  'issue',
   'entree_sol',
   'sortie_sol',
 ] as const
@@ -41,14 +30,12 @@ const COLONNES = [
 /**
  * Échappe une valeur au format CSV (RFC 4180).
  *
- * `null` sort en case vide et non en « null » : une case vide se lit comme
- * une absence par tous les tableurs, « null » se lirait comme une chaîne.
+ * `null` sort en case vide et non en « null » : une case vide se lit comme une
+ * absence par tous les tableurs, « null » se lirait comme une chaîne.
  */
-function cellule(value: string | number | boolean | null): string {
-  if (value === null) return ''
-  if (typeof value === 'boolean') return value ? 'oui' : 'non'
-
-  const texte = String(value)
+function cellule(valeur: string | number | null): string {
+  if (valeur === null) return ''
+  const texte = String(valeur)
   return /[",\n\r]/.test(texte) ? `"${texte.replace(/"/g, '""')}"` : texte
 }
 
@@ -60,81 +47,94 @@ function cellule(value: string | number | boolean | null): string {
  * un séparateur de colonnes différent, et c'est exactement le genre de détail
  * qui transforme un export en source d'erreurs.
  */
-function nombre(value: number | null): string {
-  return value === null || !Number.isFinite(value) ? '' : String(value)
+function nombre(valeur: number | null): string {
+  return valeur === null || !Number.isFinite(valeur) ? '' : String(valeur)
 }
 
-export type ExportOptions = {
+export type OptionsExport = {
   /** Horodatage de l'export, décidé par l'appelant. */
   genereLe?: string | null
 }
 
-/**
- * Le fichier CSV complet d'un wallet.
- *
- * Le préambule est en lignes `#`, que les lecteurs automatiques savent
- * ignorer. Il porte les réglages de stratégie : sans eux, aucun résultat
- * n'est recalculable, et le fichier ne serait qu'une liste de pourcentages
- * sans unité de compte.
- */
-export function walletToCsv(
-  wallet: WalletWithTokens,
-  settings: GlobalSettings,
-  options: ExportOptions = {},
+export function walletVersCsv(
+  wallet: WalletComplet,
+  options: OptionsExport = {},
 ): string {
-  const jours = new Map(wallet.days.map((jour) => [jour.id, jour]))
-
-  const parPhase = { screening: 0, test: 0, trade: 0 }
-  for (const token of wallet.tokens) parPhase[token.phase] += 1
+  const screening = wallet.tokens.filter((token) => token.phase === 'screening')
+  const test = wallet.tokens.filter((token) => token.phase === 'test')
 
   const preambule = [
-    `# wallet: ${wallet.label}`,
-    `# adresse: ${wallet.address}`,
-    `# statut: ${wallet.status}`,
-    `# analyse_le: ${wallet.analyzedAt}`,
-    `# test_ouvert_le: ${wallet.testStartedAt ?? ''}`,
-    `# trade_ouvert_le: ${wallet.tradeStartedAt ?? ''}`,
-    `# mise_sol: ${wallet.strategy.mise}`,
-    `# objectif_pct: ${wallet.strategy.objectif}`,
-    `# perte_defaut_pct: ${wallet.strategy.perteRug}`,
-    `# frais_sol: ${wallet.strategy.frais}`,
-    `# taux_vise_pct: ${wallet.strategy.tauxVise}`,
-    `# sol_eur: ${settings.solPriceEur ?? ''}`,
-    `# tokens: screening=${parPhase.screening} test=${parPhase.test} trade=${parPhase.trade}`,
+    `# wallet: ${wallet.nom}`,
+    `# adresse: ${wallet.adresse}`,
+    `# phase: ${wallet.phase}`,
+    `# cree_le: ${wallet.creeLe}`,
+    `# test_le: ${wallet.testLe ?? ''}`,
+    `# trade_le: ${wallet.tradeLe ?? ''}`,
+    `# mise_sol: ${wallet.reglages.mise}`,
+    `# tp_pct: ${wallet.reglages.tp}`,
+    `# frais_sol: ${wallet.reglages.frais}`,
+    `# lignes: screening=${screening.length} test=${test.length} trade=${wallet.trades.length}`,
+    `# jours_observes: ${wallet.jours.length}`,
     ...(options.genereLe ? [`# genere_le: ${options.genereLe}`] : []),
     '#',
     '# Les trois phases ne s’additionnent jamais.',
     '# screening : échantillon choisi à la main dans le passé, flatteur par construction.',
     '# test      : relevé exhaustif jour par jour, mais SIMULÉ — le résultat se',
-    '#             recalcule avec mise_sol, objectif_pct, perte_defaut_pct et frais_sol.',
+    '#             recalcule avec mise_sol, tp_pct et frais_sol.',
     '# trade     : trades réellement joués — le résultat est sortie_sol − entree_sol,',
     '#             rien d’autre : frais de réseau et slippage y sont déjà.',
     '#',
-    '# gain_pct vide = token relevé mais pas noté : il ne compte dans aucun résultat.',
-    '# perte_pct vide = on reprend perte_defaut_pct.',
-    '# pris = non : le wallet a bien lancé ce token, mais il n’a pas été joué.',
+    '# issue = tp   : le take-profit a été atteint → mise_sol × tp_pct / 100 − frais_sol',
+    '# issue = rate : il ne l’a pas été          → − mise_sol − frais_sol',
+    '#',
+    '# Une ligne `jour` sans aucun token est une journée sans lancement :',
+    '# le wallet n’a rien lancé ce jour-là, et la journée compte dans les jours observés.',
   ]
 
-  const lignes = wallet.tokens.map((token) => {
-    const jour = token.dayId !== null ? jours.get(token.dayId) : undefined
+  /** Les journées sans lancement, pour qu'elles existent dans le fichier. */
+  const joursPeuples = new Set(test.map((token) => token.jour))
+  const joursVides = wallet.jours
+    .filter((journee) => !joursPeuples.has(journee.jour))
+    .map((journee) => [
+      'test',
+      journee.jour,
+      null,
+      null,
+      'sans-lancement',
+      '',
+      '',
+    ] as (string | number | null)[])
 
-    return [
-      token.phase,
-      jour?.day ?? null,
-      jour?.state ?? null,
-      token.position,
-      token.name,
+  const lignes = [
+    ...screening.map((token) => [
+      'screening',
+      null,
+      token.nom,
       token.mint,
-      nombre(token.gain),
-      nombre(token.perteRug),
-      nombre(token.delay),
-      token.pris,
-      nombre(token.entreeSol),
-      nombre(token.sortieSol),
-    ]
-      .map(cellule)
-      .join(',')
-  })
+      token.issue,
+      '',
+      '',
+    ]),
+    ...test.map((token) => [
+      'test',
+      token.jour,
+      token.nom,
+      token.mint,
+      token.issue,
+      '',
+      '',
+    ]),
+    ...joursVides,
+    ...wallet.trades.map((trade) => [
+      'trade',
+      trade.date,
+      trade.nom,
+      trade.mint,
+      trade.issue,
+      nombre(trade.entreeSol),
+      nombre(trade.sortieSol),
+    ]),
+  ].map((ligne) => ligne.map(cellule).join(','))
 
   return [...preambule, COLONNES.join(','), ...lignes].join('\n') + '\n'
 }
@@ -142,13 +142,13 @@ export function walletToCsv(
 /**
  * Nom de fichier lisible et sans surprise.
  *
- * Tout ce qui n'est pas alphanumérique devient un tiret : un libellé de
- * wallet est saisi librement, et une barre oblique ou un guillemet dedans
- * casserait l'en-tête `Content-Disposition`.
+ * Tout ce qui n'est pas alphanumérique devient un tiret : un nom de wallet est
+ * saisi librement, et une barre oblique ou un guillemet dedans casserait
+ * l'en-tête `Content-Disposition`.
  */
-export function nomFichierCsv(label: string, jour: string): string {
+export function nomFichierCsv(nom: string, jour: string): string {
   const base =
-    label
+    nom
       .normalize('NFD')
       .replace(/[̀-ͯ]/g, '')
       .replace(/[^a-zA-Z0-9]+/g, '-')

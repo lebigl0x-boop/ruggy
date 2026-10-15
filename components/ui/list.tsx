@@ -17,12 +17,12 @@ export function ListGroup({
   return (
     <section className={cn('mb-6', className)}>
       {title ? (
-        <h2 className="mb-2 text-[10.5px] font-semibold tracking-[0.085em] text-ink-3 uppercase">
+        <h2 className="mb-1.5 px-4 text-[13px] text-ink-2 uppercase">
           {title}
         </h2>
       ) : null}
       <div className="overflow-hidden rounded-card bg-card">{children}</div>
-      {footer ? <p className="mt-2 px-4 text-[13px] text-ink-2">{footer}</p> : null}
+      {footer ? <p className="mt-1.5 px-4 text-[13px] leading-snug text-ink-2">{footer}</p> : null}
     </section>
   )
 }
