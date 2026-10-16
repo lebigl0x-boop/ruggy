@@ -18,6 +18,7 @@
  * les écrans suivent, pour que l'application v1 continue de tourner.
  */
 import {
+  boolean,
   doublePrecision,
   index,
   integer,
@@ -164,6 +165,103 @@ export const trades = pgTable(
   (table) => [index('trades_wallet_date_idx').on(table.walletId, table.date)],
 )
 
+/**
+ * Une ligne d'analyse automatique, mise en cache.
+ *
+ * L'analyse d'une journée coûte des centaines d'appels Helius : la relancer
+ * pour relire le même tableau serait absurde. Chaque ligne est donc conservée,
+ * et rouvrir une journée déjà analysée ne touche pas au réseau. « Réanalyser »
+ * réécrit les lignes de la journée.
+ *
+ * Ce n'est qu'un cache : rien ici n'entre dans un bilan. Les lignes retenues
+ * sont recopiées dans `tokens` à l'import, avec leur issue — c'est cette
+ * copie-là qui compte.
+ *
+ * L'issue n'est pas stockée : elle se déduit de `multiple` et du TP du wallet
+ * à l'affichage. La figer ici la rendrait fausse dès le premier changement de
+ * réglage.
+ */
+export const analyses = pgTable(
+  'analyses',
+  {
+    id: text('id').primaryKey(),
+    walletId: text('wallet_id')
+      .notNull()
+      .references(() => wallets.id, { onDelete: 'cascade' }),
+    /** AAAA-MM-JJ, journée au sens du fuseau de Paris. */
+    jour: text('jour').notNull(),
+    mint: text('mint').notNull(),
+    nom: text('nom'),
+
+    /** La transaction du premier achat du wallet sur ce token, ce jour-là. */
+    signature: text('signature').notNull(),
+    /** ISO-8601 du premier achat. */
+    acheteA: text('achete_a').notNull(),
+
+    /** SOL versé à la courbe ou à la pool, hors tips et frais de bot. */
+    solPaye: doublePrecision('sol_paye').notNull(),
+    /** Tokens reçus, décimales appliquées. Sert à vérifier un chiffre douteux. */
+    tokensRecus: doublePrecision('tokens_recus').notNull(),
+    decimales: integer('decimales').notNull(),
+
+    /**
+     * Supply retenue pour la capitalisation.
+     *
+     * Conservée pour que relancer un token n'ait plus rien à demander à DAS :
+     * avec le nom, c'est tout ce que l'appel rapportait.
+     */
+    supply: doublePrecision('supply'),
+
+    /**
+     * Prix d'entrée en SOL par token — la base canonique des multiples.
+     *
+     * Les capitalisations stockées à côté sont dérivées et ne servent qu'au
+     * diagnostic : comparer deux prix dans la même unité est la seule façon
+     * d'obtenir un multiple qui ne dépende d'aucune convention externe.
+     */
+    prixEntree: doublePrecision('prix_entree'),
+    /** Plus haut « high » de la fenêtre, en SOL par token. */
+    prixSommetBrut: doublePrecision('prix_sommet_brut'),
+    /** Plus haut « close » de la fenêtre, en SOL par token. */
+    prixSommetExec: doublePrecision('prix_sommet_exec'),
+    sommetBrutA: text('sommet_brut_a'),
+    sommetExecA: text('sommet_exec_a'),
+    /** Plus grand trou de couverture, en secondes. */
+    trouMax: integer('trou_max'),
+
+    /**
+     * Taux SOL/USD aux deux instants qui comptent.
+     *
+     * Stockés, et non recalculés à l'affichage : le taux du jour de lecture
+     * n'a rien à voir avec celui du moment de l'achat ou du sommet. Sans eux,
+     * la capitalisation en dollars d'une journée passée serait fausse.
+     */
+    solUsdAchat: doublePrecision('sol_usd_achat'),
+    solUsdSommet: doublePrecision('sol_usd_sommet'),
+
+    mcEntreeSol: doublePrecision('mc_entree_sol').notNull(),
+    /** null quand l'ATH n'a pas pu être établi. */
+    athMcSol: doublePrecision('ath_mc_sol'),
+    /** ISO-8601 du sommet. Le délai depuis l'achat s'en déduit. */
+    athA: text('ath_a'),
+    multiple: doublePrecision('multiple'),
+    /** La fenêtre n'a pas été lue en entier : l'ATH est un minorant. */
+    athPartiel: boolean('ath_partiel').notNull().default(false),
+
+    /** 'bougies' | 'swaps' — d'où vient l'ATH, pour pouvoir le recouper. */
+    source: text('source'),
+    /** La pool de cotation, quand les bougies ont servi. */
+    pool: text('pool'),
+
+    erreur: text('erreur'),
+    analyseLe: text('analyse_le').notNull(),
+  },
+  (table) => [
+    uniqueIndex('analyses_unique').on(table.walletId, table.jour, table.mint),
+    index('analyses_wallet_jour_idx').on(table.walletId, table.jour),
+  ],
+)
+
 export type WalletRow = typeof wallets.$inferSelect
 export type WalletInsert = typeof wallets.$inferInsert
 export type JourRow = typeof jours.$inferSelect
@@ -172,3 +270,5 @@ export type TokenRow = typeof tokens.$inferSelect
 export type TokenInsert = typeof tokens.$inferInsert
 export type TradeRow = typeof trades.$inferSelect
 export type TradeInsert = typeof trades.$inferInsert
+export type AnalyseRow = typeof analyses.$inferSelect
+export type AnalyseInsert = typeof analyses.$inferInsert

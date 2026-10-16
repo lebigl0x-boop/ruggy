@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
+import { cn } from './cn'
+
 /**
  * Feuille modale : elle monte du bas sur mobile, se centre sur desktop.
  * Se ferme à l'Échap et au clic sur le fond.
@@ -19,12 +21,15 @@ export function Sheet({
   title,
   children,
   footer,
+  large = false,
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: ReactNode
   footer?: ReactNode
+  /** Feuille élargie, pour ce qui ne tient pas en 420 px — un tableau. */
+  large?: boolean
 }) {
   const panel = useRef<HTMLDivElement>(null)
   // Le portail vise un nœud du document : il n'existe qu'une fois monté.
@@ -75,7 +80,10 @@ export function Sheet({
       />
       <div
         ref={panel}
-        className="relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-[14px] bg-card shadow-[0_-4px_24px_var(--c-shadow)] sm:max-w-[420px] sm:rounded-[14px]"
+        className={cn(
+          'relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-[14px] bg-card shadow-[0_-4px_24px_var(--c-shadow)] sm:rounded-[14px]',
+          large ? 'sm:max-w-[980px]' : 'sm:max-w-[420px]',
+        )}
       >
         <header className="flex items-center justify-between border-b border-separator px-4 py-3">
           <button

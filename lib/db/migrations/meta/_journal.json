@@ -8,6 +8,41 @@
       "when": 1792081131533,
       "tag": "0000_schema_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792158911735,
+      "tag": "0001_strong_martin_li",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792160610440,
+      "tag": "0002_worried_union_jack",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792161991895,
+      "tag": "0003_clean_junta",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792163928213,
+      "tag": "0004_fluffy_stranger",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792175194655,
+      "tag": "0005_normal_omega_flight",
+      "breakpoints": true
     }
   ]
 }

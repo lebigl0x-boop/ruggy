@@ -42,6 +42,7 @@ import { PhaseBadge } from '../ui/phase-badge'
 import { SaveIndicator } from '../ui/save-indicator'
 import { Sheet } from '../ui/sheet'
 import { useAutoSave } from '../ui/use-auto-save'
+import { AnalyseJournee } from './analyse-journee'
 import { Action } from './pieces'
 import { VueBilan } from './vue-bilan'
 import { VueScreening } from './vue-screening'
@@ -64,6 +65,7 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
   const [wallet, setWallet] = useState(initial)
   const [erreur, setErreur] = useState<string | null>(null)
   const [suppression, setSuppression] = useState<Decompte | null>(null)
+  const [analyse, setAnalyse] = useState(false)
 
   const prets = useMemo(() => bilans(wallet), [wallet])
 
@@ -247,6 +249,14 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
             Solscan
             <ExternalIcon className="h-[11px] w-[11px]" />
           </a>
+          <button
+            type="button"
+            onClick={() => setAnalyse(true)}
+            title="Analyser automatiquement les achats d’une journée via Helius"
+            className="rounded-full bg-fill px-2.5 py-1 text-[11.5px] text-ink-2 transition hover:bg-hi hover:text-ink"
+          >
+            Analyser
+          </button>
           <a
             href={`/wallets/${wallet.id}/export`}
             download
@@ -469,6 +479,13 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
         </section>
         </>
       ) : null}
+
+      <AnalyseJournee
+        wallet={wallet}
+        ouvert={analyse}
+        onFermer={() => setAnalyse(false)}
+        onImporte={() => router.refresh()}
+      />
 
       <Sheet
         open={suppression !== null}

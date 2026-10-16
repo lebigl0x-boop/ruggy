@@ -89,6 +89,20 @@ export function versChamp(valeur: number | null | undefined): string {
   return String(valeur).replace('.', ',')
 }
 
+/**
+ * Une capitalisation en dollars, lue d'un coup d'œil : « 344,7 k$ », « 1,2 M$ ».
+ *
+ * Les montants s'étalent sur quatre ordres de grandeur d'une ligne à l'autre ;
+ * écrits en entier ils ne se comparent plus. Le millier est l'unité naturelle
+ * de ces lancements.
+ */
+export function formatMcUsd(valeur: number): string {
+  if (!Number.isFinite(valeur) || valeur <= 0) return '—'
+  if (valeur >= 1_000_000) return `${nf(2, 2).format(valeur / 1_000_000)}${NBSP}M$`
+  if (valeur >= 1_000) return `${nf(1, 1).format(valeur / 1_000)}${NBSP}k$`
+  return `${nf(0, 0).format(valeur)}${NBSP}$`
+}
+
 export const SOLSCAN_URL = (adresse: string) =>
   `https://solscan.io/account/${encodeURIComponent(adresse)}`
 

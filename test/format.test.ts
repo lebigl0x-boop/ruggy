@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   adresseCourte,
+  formatMcUsd,
   formatDate,
   formatJour,
   formatPct,
@@ -90,5 +91,25 @@ describe('liens externes', () => {
   it('échappe ce qu’on lui donne', () => {
     expect(PADRE_URL('a b')).toBe('https://trade.padre.gg/trade/solana/a%20b')
     expect(SOLSCAN_URL('a b')).toBe('https://solscan.io/account/a%20b')
+  })
+})
+
+describe('formatMcUsd', () => {
+  it('écrit les milliers en k$, avec une décimale', () => {
+    expect(formatMcUsd(344_663)).toBe('344,7 k$')
+    expect(formatMcUsd(38_530)).toBe('38,5 k$')
+  })
+
+  it('passe au million au-delà', () => {
+    expect(formatMcUsd(1_240_000)).toBe('1,24 M$')
+  })
+
+  it('écrit les petits montants en entier', () => {
+    expect(formatMcUsd(840)).toBe('840 $')
+  })
+
+  it('rend un tiret pour une valeur absurde', () => {
+    expect(formatMcUsd(0)).toBe('—')
+    expect(formatMcUsd(Number.NaN)).toBe('—')
   })
 })

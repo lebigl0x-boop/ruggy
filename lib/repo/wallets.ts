@@ -265,6 +265,47 @@ export async function ajouterToken(
   return versToken(ligne)
 }
 
+/**
+ * Ajoute plusieurs lancements de screening d'un coup.
+ *
+ * Une seule transaction, et les positions calculées une seule fois : un import
+ * de quinze lignes par `ajouterToken` ferait quinze allers-retours et pourrait
+ * attribuer deux fois la même position, puisque chacun relit le maximum avant
+ * d'écrire.
+ */
+export async function ajouterTokensScreening(
+  walletId: string,
+  entrees: readonly { nom: string | null; mint: string | null; issue: Issue }[],
+): Promise<Token[]> {
+  if (entrees.length === 0) return []
+
+  const horodatage = maintenant()
+
+  return db.transaction(async (tx) => {
+    const [ligne] = await tx
+      .select({ max: sql<number | null>`max(${tokens.position})` })
+      .from(tokens)
+      .where(eq(tokens.walletId, walletId))
+      .limit(1)
+    const depart = (ligne?.max ?? 0) + 1
+
+    const valeurs = entrees.map((entree, i) => ({
+      id: crypto.randomUUID(),
+      walletId,
+      phase: 'screening' as const,
+      jour: null,
+      nom: entree.nom,
+      mint: entree.mint,
+      issue: entree.issue,
+      position: depart + i,
+      creeLe: horodatage,
+    }))
+
+    await tx.insert(tokens).values(valeurs)
+    return valeurs.map(versToken)
+  })
+}
+
 export async function modifierToken(
   id: string,
   patch: Partial<{ nom: string | null; mint: string | null; issue: Issue }>,

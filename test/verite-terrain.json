@@ -1,0 +1,31 @@
+{
+  "_mode_emploi": [
+    "Vérité terrain relevée à la main sur Padre, pour mesurer l'écart de l'outil.",
+    "Une entrée par token. Remplissez `cas` et lancez : npx vitest run test/verite-terrain.test.ts",
+    "",
+    "  mint        adresse du token",
+    "  nom         libellé, pour lire les résultats",
+    "  acheteA     heure du premier achat, ISO-8601 avec fuseau (ex. 2026-10-14T12:22:30Z)",
+    "  prixEntree  prix payé, en SOL par token (SOL versé ÷ tokens reçus)",
+    "  prixSommet  plus haut relevé sur Padre, en SOL par token",
+    "",
+    "Si Padre n'affiche que des capitalisations, divisez-les par la supply",
+    "(1 000 000 000 pour un lancement pump.fun) pour obtenir un prix.",
+    "Laissez `prixSommet` à null si vous n'avez pas pu le relever : le cas sera ignoré.",
+    "",
+    "Ce fichier ne contient aucune donnée de production tant que vous ne l'avez",
+    "pas rempli ; les deux exemples ci-dessous sont fictifs et exclus du calcul",
+    "par leur champ `exemple`."
+  ],
+  "toleranceMultiple": 0.15,
+  "cas": [
+    {
+      "exemple": true,
+      "mint": "Mint1111111111111111111111111111111111pump",
+      "nom": "Exemple à supprimer",
+      "acheteA": "2026-10-14T12:22:30Z",
+      "prixEntree": 2.5543e-7,
+      "prixSommet": 1.0711e-6
+    }
+  ]
+}
