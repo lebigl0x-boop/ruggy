@@ -35,6 +35,7 @@ import { BORNES } from '@/lib/validation'
 import { Ecran } from '../ui/ecran'
 import { NumberField, TextField } from '../ui/field'
 import { Onglets } from '../ui/onglets'
+import { BoutonCopier } from '../ui/copier'
 import { ChevronLeftIcon, CloseIcon, ExternalIcon } from '../ui/icons'
 import { ListGroup, ListLabel, ListRow } from '../ui/list'
 import { PhaseBadge } from '../ui/phase-badge'
@@ -230,12 +231,13 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
       }
       actions={
         <>
-          <span
-            className="hidden font-mono text-[11.5px] text-ink-3 lg:inline"
-            title={wallet.adresse}
+          <BoutonCopier
+            valeur={wallet.adresse}
+            ariaLabel="Copier l’adresse du wallet"
+            className="hidden font-mono text-[11.5px] text-ink-3 hover:text-ink-2 lg:inline-flex"
           >
             {adresseCourte(wallet.adresse)}
-          </span>
+          </BoutonCopier>
           <a
             href={SOLSCAN_URL(wallet.adresse)}
             target="_blank"
@@ -400,6 +402,21 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
                 onChange={(valeur) => reglerRepere('joursTest', valeur)}
               />
             </span>
+          </ListRow>
+        </ListGroup>
+
+        {/* L'en-tête ne porte l'adresse qu'à partir de `lg` : sur un écran
+            étroit, c'est ici qu'on vient la chercher. */}
+        <ListGroup title="Adresse">
+          <ListRow>
+            <ListLabel>Solana</ListLabel>
+            <BoutonCopier
+              valeur={wallet.adresse}
+              ariaLabel="Copier l’adresse du wallet"
+              className="ml-auto font-mono text-[15px] text-ink-2 underline decoration-separator underline-offset-4 hover:text-ink"
+            >
+              {adresseCourte(wallet.adresse)}
+            </BoutonCopier>
           </ListRow>
         </ListGroup>
 

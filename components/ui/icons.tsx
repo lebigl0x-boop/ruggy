@@ -56,3 +56,11 @@ export function ExternalIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className} strokeWidth={2.25}>
+      <path d="M4.5 10.5 L8 14 L15.5 6" />
+    </svg>
+  )
+}
