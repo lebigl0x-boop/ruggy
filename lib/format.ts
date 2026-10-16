@@ -103,6 +103,29 @@ export function formatMcUsd(valeur: number): string {
   return `${nf(0, 0).format(valeur)}${NBSP}$`
 }
 
+/**
+ * Un multiple, lu d'un coup d'œil : « ×2,4 », « ×18 », « ×1 240 ».
+ *
+ * Les décimales ne servent qu'en dessous de ×10, là où un dixième change la
+ * lecture : entre ×24 et ×24,3, la précision supplémentaire n'apprend rien et
+ * désaligne la colonne.
+ */
+export function formatMultiple(valeur: number): string {
+  if (!Number.isFinite(valeur) || valeur <= 0) return '—'
+  if (valeur < 10) return `×${nf(1, 1).format(valeur)}`
+  return `×${nf(0, 0).format(valeur)}`
+}
+
+/**
+ * Un seuil de multiple, écrit court : « ×2 », « ×1,5 ».
+ *
+ * À la différence de `formatMultiple`, qui met en forme une mesure, celui-ci
+ * affiche une valeur choisie : pas de décimale inutile sur un palier rond.
+ */
+export function formatSeuil(valeur: number): string {
+  return `×${nf(0, 2).format(valeur)}`
+}
+
 export const SOLSCAN_URL = (adresse: string) =>
   `https://solscan.io/account/${encodeURIComponent(adresse)}`
 

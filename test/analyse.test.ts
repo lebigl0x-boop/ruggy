@@ -12,6 +12,9 @@ import {
   issuesConnues,
   mcEntreeUsd,
   mcSommetUsd,
+  meilleurMultiple,
+  meilleurTp,
+  multiplesExploitables,
   multipleDepuisPrix,
   multipleRetenu,
   alertesDeLigne,
@@ -21,6 +24,7 @@ import {
   premiersAchats,
   prixDuSwap,
   seuilDeclenchement,
+  simulerTakeProfits,
   sommetApres,
   sommetSuffit,
   supplyRetenue,
@@ -593,5 +597,128 @@ describe('capitalisations en dollars', () => {
     const l = ligne({ solUsdAchat: null, solUsdSommet: null })
     expect(multipleRetenu(l)).toBeCloseTo(4, 6)
     expect(etatLigne(l, 300)).toBe('tp')
+  })
+})
+
+describe('le multiple maximal atteignable', () => {
+  it('rend le plus haut multiple du lot', () => {
+    const lignes = [
+      ligne({ mint: 'A', prixSommetBrut: 2e-7 }),
+      ligne({ mint: 'B', prixSommetBrut: 12e-7 }),
+      ligne({ mint: 'C', prixSommetBrut: 4e-7 }),
+    ]
+    expect(meilleurMultiple(lignes)).toBeCloseTo(12, 6)
+    expect(multiplesExploitables(lignes)).toHaveLength(3)
+  })
+
+  it('écarte un multiple invraisemblable : il écraserait la lecture', () => {
+    const lignes = [
+      ligne({ mint: 'A', prixSommetBrut: 3e-7 }),
+      ligne({ mint: 'B', prixSommetBrut: 1e-7 * (MULTIPLE_ABERRANT + 1) }),
+    ]
+    expect(meilleurMultiple(lignes)).toBeCloseTo(3, 6)
+  })
+
+  it('écarte un sommet sous le prix d’entrée', () => {
+    expect(meilleurMultiple([ligne({ prixSommetBrut: 0.5e-7 })])).toBeNull()
+  })
+
+  it('ne rend rien quand aucun ATH n’est établi', () => {
+    expect(meilleurMultiple([ligne({ prixSommetBrut: null, prixSommetExec: null })])).toBeNull()
+  })
+})
+
+describe('simulerTakeProfits', () => {
+  const reglages = { mise: 0.05, tp: 300, frais: 0.008 }
+
+  it('compte, pour chaque seuil, les tokens qui l’atteignent', () => {
+    const lignes = [
+      ligne({ mint: 'A', prixSommetBrut: 2.5e-7 }),
+      ligne({ mint: 'B', prixSommetBrut: 6e-7 }),
+      ligne({ mint: 'C', prixSommetBrut: 1.2e-7 }),
+    ]
+    const simules = simulerTakeProfits(lignes, reglages)
+
+    const a2 = simules.find((s) => s.multiple === 2)
+    const a5 = simules.find((s) => s.multiple === 5)
+    expect(a2?.atteints).toBe(2)
+    expect(a2?.tokens).toBe(3)
+    expect(a5?.atteints).toBe(1)
+  })
+
+  it('garde toujours le TP du wallet, même hors palier rond', () => {
+    const simules = simulerTakeProfits([ligne()], { ...reglages, tp: 250 })
+    expect(simules.some((s) => s.multiple === 3.5)).toBe(true)
+    // La liste reste croissante : c'est l'ordre d'affichage.
+    expect([...simules].sort((a, b) => a.multiple - b.multiple)).toEqual(simules)
+  })
+
+  it('écarte du bilan les lignes indéterminées à ce seuil-là', () => {
+    // Minorant à ×4 : tranchée tant que le seuil est dessous, indécidable
+    // au-dessus — et alors écartée plutôt que comptée en raté.
+    const simules = simulerTakeProfits([ligne({ athPartiel: true })], reglages)
+    const a3 = simules.find((s) => s.multiple === 3)
+    const a10 = simules.find((s) => s.multiple === 10)
+    expect(a3?.tokens).toBe(1)
+    expect(a10?.tokens).toBe(0)
+    expect(a10?.indetermines).toBe(1)
+  })
+
+  it('désigne le TP le plus rentable, le plus bas à égalité', () => {
+    // Trois tokens à ×4 pile : au-delà, plus rien n'est atteint.
+    const lignes = ['A', 'B', 'C'].map((mint) => ligne({ mint, prixSommetBrut: 4e-7 }))
+    const optimal = meilleurTp(simulerTakeProfits(lignes, reglages))
+    expect(optimal?.multiple).toBe(4)
+  })
+
+  it('ne désigne personne quand aucun TP n’est rentable', () => {
+    const lignes = ['A', 'B', 'C'].map((mint) => ligne({ mint, prixSommetBrut: 1.1e-7 }))
+    expect(meilleurTp(simulerTakeProfits(lignes, reglages))).toBeNull()
+  })
+})
+
+describe('la portée d’un forçage dans la simulation', () => {
+  const reglages = { mise: 0.05, tp: 300, frais: 0.008 }
+
+  it('garde un gagnant forcé en dessous de son seuil, l’écarte au-dessus', () => {
+    // Forcé « TP » à ×4 : vrai aussi à ×2, muet à ×10.
+    const lignes = [ligne({ mint: 'A', prixSommetBrut: null, prixSommetExec: null })]
+    const forcages = new Map([['A', 'tp' as const]])
+    const simules = simulerTakeProfits(lignes, reglages, forcages)
+
+    expect(simules.find((s) => s.multiple === 2)?.atteints).toBe(1)
+    expect(simules.find((s) => s.multiple === 4)?.atteints).toBe(1)
+    expect(simules.find((s) => s.multiple === 10)?.tokens).toBe(0)
+  })
+
+  it('garde un raté forcé au-dessus de son seuil, l’écarte en dessous', () => {
+    const lignes = [ligne({ mint: 'A', prixSommetBrut: null, prixSommetExec: null })]
+    const forcages = new Map([['A', 'rate' as const]])
+    const simules = simulerTakeProfits(lignes, reglages, forcages)
+
+    expect(simules.find((s) => s.multiple === 10)?.tokens).toBe(1)
+    expect(simules.find((s) => s.multiple === 10)?.atteints).toBe(0)
+    expect(simules.find((s) => s.multiple === 2)?.tokens).toBe(0)
+  })
+
+  it('au TP du wallet, la simulation rend exactement le bilan du tableau', () => {
+    const lignes = [
+      ligne({ mint: 'A', prixSommetBrut: 6e-7 }),
+      ligne({ mint: 'B', prixSommetBrut: 1.2e-7 }),
+      ligne({ mint: 'C', prixSommetBrut: null, prixSommetExec: null }),
+    ]
+    const forcages = new Map([['C', 'tp' as const]])
+
+    const attendu = bilanSimule(
+      issuesConnues(etatsDesLignes(lignes, reglages.tp, forcages)),
+      reglages,
+    )
+    const courant = simulerTakeProfits(lignes, reglages, forcages).find(
+      (s) => s.multiple === multipleVise(reglages.tp),
+    )
+
+    expect(courant?.resultat).toBeCloseTo(attendu.resultat, 9)
+    expect(courant?.tokens).toBe(attendu.tokens)
+    expect(courant?.atteints).toBe(attendu.tp)
   })
 })

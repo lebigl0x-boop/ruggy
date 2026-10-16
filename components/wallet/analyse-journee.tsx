@@ -19,15 +19,27 @@ import {
   LIBELLE_ALERTE,
   mcEntreeUsd,
   mcSommetUsd,
+  meilleurMultiple,
+  meilleurTp,
   multipleRetenu,
   multipleVise,
   numerosDeRelance,
+  simulerTakeProfits,
   TOKENS_EN_PARALLELE,
   type EtatIssue,
   type LigneAnalyse,
+  type TpSimule,
 } from '@/lib/analyse'
 import { bilanSimule } from '@/lib/calcul'
-import { adresseCourte, formatMcUsd, formatPct, formatSol, PADRE_URL } from '@/lib/format'
+import {
+  adresseCourte,
+  formatMcUsd,
+  formatMultiple,
+  formatPct,
+  formatSeuil,
+  formatSol,
+  PADRE_URL,
+} from '@/lib/format'
 import { formatDelai, heureParis, hier } from '@/lib/journee'
 import type { Issue, WalletComplet } from '@/lib/repo/types'
 import { Courbe } from '../charts/courbe'
@@ -87,6 +99,14 @@ export function AnalyseJournee({
   /** Les lignes qu'il reste à trancher : elles bloquent l'import. */
   const indetermines = aTrancher(etats)
   const relances = useMemo(() => numerosDeRelance(lignes), [lignes])
+  /** Le plus gros multiple qu'un token de la journée a offert. */
+  const meilleur = useMemo(() => meilleurMultiple(lignes), [lignes])
+  /** Ce qu'aurait donné chaque TP sur ces mêmes lignes. */
+  const tpsSimules = useMemo(
+    () => simulerTakeProfits(lignes, wallet.reglages, forcages),
+    [lignes, wallet.reglages, forcages],
+  )
+  const tpOptimal = useMemo(() => meilleurTp(tpsSimules), [tpsSimules])
 
   /** Les mints déjà présents dans un lot : on le signale, on ne bloque rien. */
   const dejaScreening = useMemo(
@@ -337,6 +357,12 @@ export function AnalyseJournee({
               ton={indetermines > 0 ? 'rouge' : undefined}
             />
             <Chiffre
+              label="Meilleur ×"
+              valeur={meilleur === null ? '—' : formatMultiple(meilleur)}
+              detail="le token le plus haut"
+              ton={meilleur !== null && meilleur >= seuil ? 'vert' : undefined}
+            />
+            <Chiffre
               fort
               label="Résultat simulé"
               valeur={formatSol(bilan.resultat)}
@@ -349,6 +375,10 @@ export function AnalyseJournee({
             <div className="mb-3 rounded-card bg-card px-3 py-2.5">
               <Courbe points={bilan.courbe} hauteur={90} />
             </div>
+          ) : null}
+
+          {etape === 'resultats' ? (
+            <PanneauTps simules={tpsSimules} optimal={tpOptimal} tpCourant={tp} />
           ) : null}
 
           <Tableau
@@ -369,6 +399,7 @@ export function AnalyseJournee({
                 key={ligne.mint}
                 ligne={ligne}
                 etat={etats[index] ?? 'inconnue'}
+                seuil={seuil}
                 force={forcages.has(ligne.mint)}
                 relance={relances.get(ligne.mint) ?? null}
                 prixSol={prixSol}
@@ -481,6 +512,7 @@ export function AnalyseJournee({
 function LigneTableau({
   ligne,
   etat,
+  seuil,
   force,
   relance,
   prixSol,
@@ -489,6 +521,8 @@ function LigneTableau({
 }: {
   ligne: LigneAnalyse
   etat: EtatIssue
+  /** Le multiple visé par le TP du wallet, pour situer le ×max. */
+  seuil: number
   force: boolean
   relance: number | null
   prixSol: number | null
@@ -641,6 +675,33 @@ function LigneTableau({
         )}
       </span>
 
+      {/* Le multiple maximal atteint : le sommet rapporté au prix d'entrée.
+          C'est la colonne qui dit ce qu'un autre TP aurait donné sur ce
+          token-là — d'où le vert dès qu'elle passe le seuil du TP actuel. */}
+      <span
+        className="w-[70px] text-right text-[13px] font-medium tabular-nums"
+        title={
+          multiple === null
+            ? 'ATH inconnu : pas de multiple.'
+            : ligne.athPartiel
+              ? 'Minorant : la lecture s’est arrêtée avant la fin de la fenêtre. Le sommet réel est au moins à ce multiple.'
+              : `Sommet atteint, rapporté au prix d’entrée. Seuil du TP actuel : ${formatSeuil(seuil)}.`
+        }
+      >
+        {ligne.erreur !== null || multiple === null ? (
+          enAttente && ligne.erreur === null ? (
+            <span className="animate-pulse text-ink-3">…</span>
+          ) : (
+            <span className="text-ink-3">—</span>
+          )
+        ) : (
+          <span className={cn(multiple >= seuil ? 'text-green' : 'text-ink-2')}>
+            {ligne.athPartiel ? '≥' : ''}
+            {formatMultiple(multiple)}
+          </span>
+        )}
+      </span>
+
       <span
         className="w-[72px] text-right text-[12.5px] text-ink-2 tabular-nums"
         title={
@@ -669,5 +730,100 @@ function LigneTableau({
         </span>
       ) : null}
     </Rangee>
+  )
+}
+
+/**
+ * Ce qu'aurait donné chaque take-profit sur la même journée.
+ *
+ * Le tableau dit, ligne par ligne, jusqu'où chaque token est monté ; ce panneau
+ * en tire la seule question qui se pose ensuite : où fallait-il sortir. Un TP
+ * bas se touche souvent mais rapporte peu, un TP haut l'inverse — le résultat
+ * simulé, mise et frais du wallet appliqués, tranche entre les deux.
+ *
+ * Rien n'est enregistré ici : c'est une lecture, pas un réglage. Le TP du
+ * wallet se change dans ses réglages, en connaissance de cause.
+ */
+function PanneauTps({
+  simules,
+  optimal,
+  tpCourant,
+}: {
+  simules: readonly TpSimule[]
+  optimal: TpSimule | null
+  tpCourant: number
+}) {
+  const seuilCourant = multipleVise(tpCourant)
+  const courant = simules.find((simule) => simule.multiple === seuilCourant) ?? null
+
+  // Sans une seule issue connue, il n'y a rien à comparer : le panneau se tait
+  // plutôt que d'aligner douze colonnes de zéros.
+  if (simules.every((simule) => simule.tokens === 0)) return null
+
+  return (
+    <div className="mb-3 rounded-card bg-card px-3 py-2.5">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[11px] font-semibold tracking-[0.05em] text-ink-3 uppercase">
+          Où il fallait sortir
+        </p>
+        <p className="text-[11.5px] text-ink-3">
+          {optimal === null
+            ? 'Aucun TP n’était rentable ce jour-là.'
+            : optimal.multiple === seuilCourant
+              ? `Votre TP (${formatSeuil(seuilCourant)}) était le meilleur de la journée.`
+              : `Le meilleur était ${formatSeuil(optimal.multiple)} (TP ${optimal.tp} %) : ${formatSol(
+                  optimal.resultat,
+                )}${courant === null ? '' : `, contre ${formatSol(courant.resultat)} au vôtre`}.`}
+        </p>
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+        {simules.map((simule) => {
+          const estCourant = simule.multiple === seuilCourant
+          const estOptimal = optimal !== null && simule.multiple === optimal.multiple
+
+          return (
+            <div
+              key={simule.multiple}
+              title={
+                simule.indetermines > 0
+                  ? `${simule.indetermines} ligne(s) indéterminée(s) à ce seuil : écartées du résultat.`
+                  : `${simule.atteints} token(s) sur ${simule.tokens} atteignent ${formatSeuil(simule.multiple)}.`
+              }
+              className={cn(
+                'min-w-[86px] shrink-0 rounded-[10px] px-2 py-1.5 text-center',
+                estCourant ? 'bg-blue-soft' : estOptimal ? 'bg-green-soft' : 'bg-card-2',
+              )}
+            >
+              <p
+                className={cn(
+                  'text-[13px] font-semibold tabular-nums',
+                  estCourant ? 'text-blue' : estOptimal ? 'text-green' : 'text-ink-2',
+                )}
+              >
+                {formatSeuil(simule.multiple)}
+              </p>
+              <p className="text-[10.5px] text-ink-3 tabular-nums">
+                {simule.atteints}/{simule.tokens}
+              </p>
+              <p
+                className={cn(
+                  'text-[11px] font-medium tabular-nums',
+                  simule.resultat > 0 ? 'text-green' : simule.resultat < 0 ? 'text-red' : 'text-ink-3',
+                )}
+              >
+                {formatSol(simule.resultat)}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+
+      <p className="mt-1.5 text-[11px] text-ink-3">
+        Pour chaque seuil : tokens atteints sur tokens tranchés, puis le résultat
+        simulé en SOL. Les lignes dont l’ATH est un minorant sous le seuil sont
+        écartées — leur « ≥ » dans la colonne ×max le rappelle.
+      </p>
+    </div>
   )
 }

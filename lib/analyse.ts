@@ -11,7 +11,7 @@
  * exactement comme une journée saisie à la main.
  */
 
-import type { Issue } from './calcul'
+import { bilanSimule, type Issue, type Reglages } from './calcul'
 import { WSOL, type Swap } from './helius/swaps'
 
 // ---------------------------------------------------------------------------
@@ -581,6 +581,144 @@ export function issuesConnues(etats: readonly EtatIssue[]): Issue[] {
 /** Les lignes qui bloquent l'import : indéterminées ou à vérifier. */
 export function aTrancher(etats: readonly EtatIssue[]): number {
   return etats.filter((etat) => etat === 'inconnue' || etat === 'verifier').length
+}
+
+// ---------------------------------------------------------------------------
+// Ce qu'on aurait pu tirer de la journée
+// ---------------------------------------------------------------------------
+
+/**
+ * Un multiple exploitable pour les statistiques, ou `null`.
+ *
+ * Les lignes dont un contrôle de vraisemblance s'est déclenché sur le multiple
+ * lui-même sont écartées : un ×5 000 né d'une mauvaise pool écraserait toute
+ * lecture de la journée. Un sommet en fin de fenêtre, lui, reste exploitable —
+ * il est douteux sur la date, pas sur l'ordre de grandeur.
+ */
+export function multipleExploitable(ligne: LigneAnalyse): number | null {
+  const multiple = multipleRetenu(ligne)
+  if (multiple === null) return null
+
+  const alertes = alertesDeLigne(ligne)
+  if (alertes.includes('multiple-aberrant') || alertes.includes('sommet-sous-entree')) {
+    return null
+  }
+
+  return multiple
+}
+
+/** Les multiples exploitables d'un lot, du plus grand au plus petit. */
+export function multiplesExploitables(lignes: readonly LigneAnalyse[]): number[] {
+  return lignes
+    .map(multipleExploitable)
+    .filter((multiple): multiple is number => multiple !== null)
+    .sort((a, b) => b - a)
+}
+
+/**
+ * Le meilleur multiple de la journée. `null` si aucun n'est exploitable.
+ *
+ * C'est un minorant dès qu'une ligne a été arrêtée au TP ou tronquée : on ne
+ * cherche pas le sommet au-delà de ce qui décide l'issue.
+ */
+export function meilleurMultiple(lignes: readonly LigneAnalyse[]): number | null {
+  return multiplesExploitables(lignes)[0] ?? null
+}
+
+/**
+ * Les take-profits mis à l'épreuve, exprimés en multiples visés.
+ *
+ * La liste s'arrête à ×100 : au-delà, un palier ne tient jamais qu'à un seul
+ * token, et le résultat qu'on en tirerait ne serait pas une stratégie mais une
+ * anecdote.
+ */
+export const MULTIPLES_TESTES = [1.5, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50, 100]
+
+/** Ce qu'aurait donné un take-profit donné sur les lignes de la journée. */
+export type TpSimule = {
+  /** Le take-profit, en %. */
+  tp: number
+  /** Le multiple qu'il vise. */
+  multiple: number
+  /** Lignes dont l'issue est connue à ce TP-là. */
+  tokens: number
+  /** Celles qui l'auraient atteint. */
+  atteints: number
+  /** Celles qu'on ne sait pas trancher à ce TP-là. */
+  indetermines: number
+  /** Résultat simulé, en SOL, mise et frais du wallet appliqués. */
+  resultat: number
+}
+
+/**
+ * Jusqu'où une décision prise à la main reste vraie.
+ *
+ * Un forçage a été décidé en regardant le TP du wallet, et ne vaut que du côté
+ * où il ne peut pas se contredire : « TP atteint » à ×4 l'est aussi à ×2, et
+ * « raté » à ×4 l'est encore à ×10. Dans l'autre sens, la décision ne dit rien,
+ * et la ligne est écartée du seuil testé plutôt que devinée — c'est ce qui
+ * empêche un gagnant forcé de se retrouver compté à ×100.
+ *
+ * Une ligne non forcée est toujours de la partie : `etatLigne` la tranche.
+ */
+function portee(force: Issue | undefined, seuilForce: number, seuilTeste: number): boolean {
+  if (force === undefined) return true
+  return force === 'tp' ? seuilTeste <= seuilForce : seuilTeste >= seuilForce
+}
+
+/**
+ * Ce que chaque take-profit aurait donné sur la même journée.
+ *
+ * Tout passe par `etatLigne` et `bilanSimule` : la prudence du tableau vaut
+ * aussi ici. Une ligne dont l'ATH est un minorant sous le seuil testé n'est
+ * comptée ni en TP ni en raté — elle est écartée du bilan et déclarée
+ * indéterminée, parce qu'un TP haut rend indécidables des lignes qu'un TP bas
+ * tranchait sans mal, et qu'une troncature ne doit pas se lire comme un échec.
+ *
+ * Le TP courant du wallet est toujours présent, même s'il ne tombe pas sur un
+ * palier rond : c'est la référence à laquelle tout le reste se compare, et à ce
+ * seuil-là le résultat est exactement celui qu'affiche le tableau.
+ */
+export function simulerTakeProfits(
+  lignes: readonly LigneAnalyse[],
+  reglages: Reglages,
+  forcages: ReadonlyMap<string, Issue> = new Map(),
+  multiples: readonly number[] = MULTIPLES_TESTES,
+): TpSimule[] {
+  const seuilForce = multipleVise(reglages.tp)
+  const vises = [...new Set([...multiples, seuilForce])].sort((a, b) => a - b)
+
+  return vises.map((multiple) => {
+    const tp = (multiple - 1) * 100
+    const retenues = lignes.filter((ligne) => portee(forcages.get(ligne.mint), seuilForce, multiple))
+    const etats = etatsDesLignes(retenues, tp, forcages)
+    const connues = issuesConnues(etats)
+    const bilan = bilanSimule(connues, { ...reglages, tp })
+
+    return {
+      tp,
+      multiple,
+      tokens: bilan.tokens,
+      atteints: bilan.tp,
+      indetermines: aTrancher(etats),
+      resultat: bilan.resultat,
+    }
+  })
+}
+
+/**
+ * Le take-profit le plus rentable parmi ceux simulés. `null` si aucun ne l'est.
+ *
+ * À résultat égal, le plus bas gagne : il se touche plus souvent, donc il tient
+ * à moins de coups de chance.
+ */
+export function meilleurTp(simules: readonly TpSimule[]): TpSimule | null {
+  let meilleur: TpSimule | null = null
+  for (const simule of simules) {
+    if (simule.tokens === 0 || simule.resultat <= 0) continue
+    if (meilleur === null || simule.resultat > meilleur.resultat) meilleur = simule
+  }
+  return meilleur
 }
 
 /**

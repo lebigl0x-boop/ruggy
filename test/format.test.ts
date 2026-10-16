@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   adresseCourte,
   formatMcUsd,
+  formatMultiple,
+  formatSeuil,
   formatDate,
   formatJour,
   formatPct,
@@ -111,5 +113,30 @@ describe('formatMcUsd', () => {
   it('rend un tiret pour une valeur absurde', () => {
     expect(formatMcUsd(0)).toBe('—')
     expect(formatMcUsd(Number.NaN)).toBe('—')
+  })
+})
+
+describe('formatMultiple', () => {
+  it('garde une décimale en dessous de ×10', () => {
+    expect(formatMultiple(2.37)).toBe('×2,4')
+    expect(formatMultiple(1)).toBe('×1,0')
+  })
+
+  it('arrondit au-delà : le dixième n’apprend plus rien', () => {
+    expect(formatMultiple(24.3)).toBe('×24')
+    expect(formatMultiple(1240)).toBe('×1\u202f240')
+  })
+
+  it('rend un tiret pour une valeur absurde', () => {
+    expect(formatMultiple(0)).toBe('—')
+    expect(formatMultiple(Number.NaN)).toBe('—')
+  })
+})
+
+describe('formatSeuil', () => {
+  it('écrit un palier sans décimale inutile', () => {
+    expect(formatSeuil(2)).toBe('×2')
+    expect(formatSeuil(1.5)).toBe('×1,5')
+    expect(formatSeuil(3.5)).toBe('×3,5')
   })
 })
