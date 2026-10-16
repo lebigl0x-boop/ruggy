@@ -1,10 +1,17 @@
 'use client'
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 /**
  * Feuille modale : elle monte du bas sur mobile, se centre sur desktop.
  * Se ferme à l'Échap et au clic sur le fond.
+ *
+ * Le contenu est téléporté dans `document.body`. Sans cela, `position: fixed`
+ * ne se cale pas sur la fenêtre dès qu'un ancêtre porte un `transform`, un
+ * `filter` ou un `backdrop-filter` — la barre translucide d'`Ecran`, d'où part
+ * le bouton « Nouveau wallet », en est un : la feuille se calait alors sur la
+ * barre et le haut du formulaire passait hors champ.
  */
 export function Sheet({
   open,
@@ -20,12 +27,21 @@ export function Sheet({
   footer?: ReactNode
 }) {
   const panel = useRef<HTMLDivElement>(null)
+  // Le portail vise un nœud du document : il n'existe qu'une fois monté.
+  const [monte, setMonte] = useState(false)
+  useEffect(() => setMonte(true), [])
+
+  // `onClose` est le plus souvent une fonction recréée à chaque rendu. La
+  // garder en référence évite que l'effet ci-dessous se rejoue à chaque
+  // frappe — il ramènerait le curseur dans le premier champ.
+  const fermeture = useRef(onClose)
+  fermeture.current = onClose
 
   useEffect(() => {
     if (!open) return
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') fermeture.current()
     }
     document.addEventListener('keydown', onKey)
 
@@ -40,11 +56,11 @@ export function Sheet({
       document.removeEventListener('keydown', onKey)
       document.body.style.overflow = overflow
     }
-  }, [open, onClose])
+  }, [open])
 
-  if (!open) return null
+  if (!open || !monte) return null
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
       role="dialog"
@@ -74,6 +90,7 @@ export function Sheet({
         </header>
         <div className="overflow-y-auto overscroll-contain p-4">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
