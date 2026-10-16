@@ -246,6 +246,21 @@ export async function ajouterToken(
     creeLe: maintenant(),
   }
 
+  // Un lancement de test accroché à une journée absente de `jours` serait
+  // invisible : `joursTest` parcourt les journées et y rattache les lancements,
+  // jamais l'inverse. Noter un lancement vaut donc relevé de la journée.
+  const jour = ligne.jour
+  if (entree.phase === 'test' && jour !== null) {
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(jours)
+        .values({ id: crypto.randomUUID(), walletId, jour, creeLe: ligne.creeLe })
+        .onConflictDoNothing()
+      await tx.insert(tokens).values(ligne)
+    })
+    return versToken(ligne)
+  }
+
   await db.insert(tokens).values(ligne)
   return versToken(ligne)
 }

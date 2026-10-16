@@ -41,6 +41,7 @@ export function ChampNomToken({
   dataChamp,
   dataLigne,
   className,
+  taille = 'normal',
   onChange,
 }: {
   nom: string | null
@@ -51,6 +52,8 @@ export function ChampNomToken({
   dataChamp?: string
   dataLigne?: string
   className?: string
+  /** `compact` pour les sous-lignes d'une journée dépliée, plus serrées. */
+  taille?: 'normal' | 'compact'
   onChange: (patch: PatchNomToken) => void
 }) {
   const [enCours, setEnCours] = useState(false)
@@ -103,7 +106,7 @@ export function ChampNomToken({
         sync={sync}
         onChange={saisir}
         placeholder={`Token ${numero} ou CA`}
-        className="text-[15px]"
+        className={taille === 'compact' ? 'text-[12.5px]' : 'text-[15px]'}
       />
 
       {enCours ? (

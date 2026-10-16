@@ -109,7 +109,17 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
   function ajouterToken(phase: 'screening' | 'test', issue: 'tp' | 'rate', jour?: string) {
     run(async () => {
       const token = await ajouterTokenAction(wallet.id, { phase, jour, issue })
-      setWallet((precedent) => ({ ...precedent, tokens: [...precedent.tokens, token] }))
+      setWallet((precedent) => {
+        // Noter un lancement relève sa journée côté base (voir `ajouterToken`
+        // dans le repo) : la liste locale doit suivre, sinon le calendrier ne
+        // marque le jour qu'au prochain aller-retour serveur.
+        const nouvelle =
+          token.jour !== null && !precedent.jours.some((j) => j.jour === token.jour)
+            ? [...precedent.jours, { id: `jour-${token.jour}`, jour: token.jour }]
+            : precedent.jours
+
+        return { ...precedent, tokens: [...precedent.tokens, token], jours: nouvelle }
+      })
     })
   }
 
@@ -317,8 +327,11 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
           bilan={prets.test}
           tokensParJour={(jour) => tokensDuJour(wallet, jour)}
           repere={wallet.joursTest}
+          reglages={wallet.reglages}
           onRelever={relever}
+          onAjouter={(jour, issue) => ajouterToken('test', issue, jour)}
           onIssue={(id, issue) => majToken(id, { issue })}
+          onNom={(id, patch) => majToken(id, patch)}
           onSupprimerToken={supprimerToken}
           onSupprimerJour={supprimerJour}
         />

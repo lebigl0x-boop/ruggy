@@ -1,41 +1,62 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import type { BilanTest } from '@/lib/calcul'
+import { resultatToken, type BilanTest, type Reglages } from '@/lib/calcul'
 import { formatJour, formatPct, formatSol, todayIso } from '@/lib/format'
 import type { Token } from '@/lib/repo/types'
 import { Courbe } from '../charts/courbe'
+import { ChampNomToken, type PatchNomToken } from '../token/champ-nom-token'
 import { cn } from '../ui/cn'
 import { CloseIcon, PlusIcon } from '../ui/icons'
 import { Bande, Chiffre, Panneau, Rangee, Tableau } from '../ui/table'
 import { BoutonsIssue } from './pieces'
+import { CalendrierTest, moisDe, type JourReleve } from './calendrier-test'
 
 /**
  * La phase de test : un relevé exhaustif, jour par jour, sans argent réel.
  *
- * L'écran est rangé dans l'ordre où on s'en sert : les chiffres en bande, la
- * saisie juste après, puis les journées. Reléguer la saisie en bas de page
- * obligeait à traverser tout le bilan pour noter la journée de la veille — le
- * geste quotidien devenait le plus coûteux de l'écran.
+ * L'écran est un calendrier et le tableau du jour choisi, rien d'autre. Le
+ * geste quotidien est toujours le même — « hier, qu'est-ce qu'il a lancé ? » —
+ * donc on clique la date puis on remplit les lignes, exactement comme en
+ * screening. La saisie composée-puis-validée qui vivait ici obligeait à tenir
+ * un état avant de l'enregistrer : un temps de trop pour un geste quotidien.
  */
 export function VueTest({
   bilan,
+  reglages,
   tokensParJour,
   repere,
   onRelever,
+  onAjouter,
   onIssue,
+  onNom,
   onSupprimerToken,
   onSupprimerJour,
 }: {
   bilan: BilanTest
+  reglages: Reglages
   tokensParJour: (jour: string) => Token[]
   repere: number
   onRelever: (jour: string, issues: readonly ('tp' | 'rate')[]) => void
+  onAjouter: (jour: string, issue: 'tp' | 'rate') => void
   onIssue: (id: string, issue: 'tp' | 'rate') => void
+  onNom: (id: string, patch: PatchNomToken) => void
   onSupprimerToken: (id: string) => void
   onSupprimerJour: (jour: string) => void
 }) {
+  const [aujourdhui] = useState(todayIso)
+  const [selection, setSelection] = useState(aujourdhui)
+  const [mois, setMois] = useState(() => moisDe(aujourdhui))
+
+  const releves = useMemo(() => {
+    const table = new Map<string, JourReleve>()
+    for (const journee of bilan.parJour) {
+      table.set(journee.jour, { tokens: journee.tokens, resultat: journee.resultat })
+    }
+    return table
+  }, [bilan.parJour])
+
   return (
     <>
       <Bande>
@@ -82,179 +103,109 @@ export function VueTest({
         />
       </Bande>
 
-      <FormulaireJour onRelever={onRelever} />
-
-      <div className="grid gap-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid gap-2 xl:grid-cols-[304px_minmax(0,1fr)]">
         <Panneau titre={`Journées · ${bilan.joursObserves}`}>
-          <Tableau
-            entetes={[
-              { label: 'Jour', classe: 'w-[150px]' },
-              { label: 'Lancements', classe: 'w-[110px] text-right' },
-              { label: 'Au TP', classe: 'w-[70px] text-right' },
-              { label: 'Résultat', classe: 'ml-auto w-[110px] text-right' },
-            ]}
-            vide={
-              bilan.parJour.length === 0 ? (
-                <p className="px-3 py-8 text-center text-[13px] text-ink-3">
-                  Aucune journée relevée. Utilisez la saisie ci-dessus — une
-                  journée sans lancement compte aussi.
-                </p>
-              ) : undefined
-            }
-          >
-            {bilan.parJour.map((journee) => (
-              <LigneJour
-                key={journee.jour}
-                jour={journee.jour}
-                tokens={journee.tokens}
-                tp={journee.tp}
-                resultat={journee.resultat}
-                liste={tokensParJour(journee.jour)}
-                onIssue={onIssue}
-                onSupprimerToken={onSupprimerToken}
-                onSupprimerJour={onSupprimerJour}
-              />
-            ))}
-          </Tableau>
+          <CalendrierTest
+            mois={mois}
+            onMois={setMois}
+            releves={releves}
+            selection={selection}
+            onSelection={setSelection}
+            aujourdhui={aujourdhui}
+          />
         </Panneau>
 
-        <div>
-          <Panneau titre="Résultat cumulé">
-            <div className="px-3 py-2.5">
-              <Courbe points={bilan.courbeParJour} hauteur={118} />
-            </div>
-          </Panneau>
+        <PanneauJour
+          jour={selection}
+          releve={releves.get(selection)}
+          reglages={reglages}
+          liste={tokensParJour(selection)}
+          onRelever={onRelever}
+          onAjouter={onAjouter}
+          onIssue={onIssue}
+          onNom={onNom}
+          onSupprimerToken={onSupprimerToken}
+          onSupprimerJour={onSupprimerJour}
+        />
+      </div>
 
-          <Panneau titre="Lecture">
-            <p className="px-3 py-2 text-[12.5px] leading-snug text-ink-2">
-              {bilan.tokens === 0
-                ? 'Relevez quelques journées : le taux au TP se compare ensuite au seuil pour dire si la stratégie tient.'
-                : bilan.rentable
-                  ? `${formatPct(bilan.tauxTp)} des lancements atteignent le TP, au-dessus des ${formatPct(bilan.seuil ?? 0, { decimales: 1 })} nécessaires à l’équilibre.`
-                  : `${formatPct(bilan.tauxTp)} des lancements atteignent le TP, sous les ${formatPct(bilan.seuil ?? 0, { decimales: 1 })} nécessaires à l’équilibre.`}
-            </p>
-            <p className="border-t border-separator px-3 py-1.5 text-[11.5px] text-ink-3">
-              Exhaustif, médiocres compris — d’où son honnêteté. Ne s’additionne à aucun autre lot.
-            </p>
-          </Panneau>
-        </div>
+      <div className="grid gap-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <Panneau titre="Résultat cumulé">
+          <div className="px-3 py-2.5">
+            <Courbe points={bilan.courbeParJour} hauteur={118} />
+          </div>
+        </Panneau>
+
+        <Panneau titre="Lecture">
+          <p className="px-3 py-2 text-[12.5px] leading-snug text-ink-2">
+            {bilan.tokens === 0
+              ? 'Relevez quelques journées : le taux au TP se compare ensuite au seuil.'
+              : bilan.rentable
+                ? `${formatPct(bilan.tauxTp)} des lancements atteignent le TP, au-dessus des ${formatPct(bilan.seuil ?? 0, { decimales: 1 })} nécessaires à l’équilibre.`
+                : `${formatPct(bilan.tauxTp)} des lancements atteignent le TP, sous les ${formatPct(bilan.seuil ?? 0, { decimales: 1 })} nécessaires à l’équilibre.`}
+          </p>
+          <p className="border-t border-separator px-3 py-1.5 text-[11.5px] text-ink-3">
+            Exhaustif, médiocres compris — d’où son honnêteté. Ne s’additionne à aucun autre lot.
+          </p>
+        </Panneau>
       </div>
     </>
   )
 }
 
-function LigneJour({
+/**
+ * Le tableau du jour choisi.
+ *
+ * Il a trois visages, parce que le jour en a trois : pas encore regardé, relevé
+ * sans lancement, relevé avec des lancements. Les deux premiers se ressemblent
+ * à l'écran mais disent le contraire l'un de l'autre, d'où le texte explicite
+ * dans chaque cas plutôt qu'un tableau vide muet.
+ */
+function PanneauJour({
   jour,
-  tokens,
-  tp,
-  resultat,
+  releve,
+  reglages,
   liste,
+  onRelever,
+  onAjouter,
   onIssue,
+  onNom,
   onSupprimerToken,
   onSupprimerJour,
 }: {
   jour: string
-  tokens: number
-  tp: number
-  resultat: number
+  releve: JourReleve | undefined
+  reglages: Reglages
   liste: readonly Token[]
+  onRelever: (jour: string, issues: readonly ('tp' | 'rate')[]) => void
+  onAjouter: (jour: string, issue: 'tp' | 'rate') => void
   onIssue: (id: string, issue: 'tp' | 'rate') => void
+  onNom: (id: string, patch: PatchNomToken) => void
   onSupprimerToken: (id: string) => void
   onSupprimerJour: (jour: string) => void
 }) {
-  const [ouvert, setOuvert] = useState(false)
-  const vide = tokens === 0
+  const resultat = releve?.resultat ?? 0
 
   return (
-    <div className="border-b border-separator/60 last:border-b-0">
-      <Rangee onClick={() => setOuvert((etat) => !etat)} actif={ouvert} className="border-b-0">
-        <span className={cn('w-[150px] shrink-0', vide ? 'text-ink-3' : 'text-ink')}>
-          {formatJour(jour)}
-        </span>
-        <span className="w-[110px] shrink-0 text-right text-ink-2 tabular-nums">
-          {vide ? <span className="text-ink-3">sans lancement</span> : tokens}
-        </span>
-        <span className="w-[70px] shrink-0 text-right text-ink-2 tabular-nums">
-          {vide ? '—' : tp}
-        </span>
-        <span
-          className={cn(
-            'ml-auto w-[110px] shrink-0 text-right font-semibold tabular-nums',
-            resultat > 0 ? 'text-green' : resultat < 0 ? 'text-red' : 'text-ink-3',
-          )}
-        >
-          {formatSol(resultat)}
-        </span>
-      </Rangee>
-
-      {ouvert ? (
-        <div className="bg-card-2/60">
-          {liste.map((token, index) => (
-            <div key={token.id} className="flex items-center gap-3 px-3 py-1.5 pl-8 text-[12.5px]">
-              <span className="w-4 shrink-0 text-ink-3 tabular-nums">{index + 1}</span>
-              <span className="min-w-0 flex-1 truncate text-ink-2">
-                {token.nom ?? 'Sans nom'}
-              </span>
-              <BoutonsIssue
-                valeur={token.issue}
-                onChange={(issue) => onIssue(token.id, issue)}
-                taille="compact"
-              />
-              <button
-                type="button"
-                onClick={() => onSupprimerToken(token.id)}
-                aria-label={`Supprimer le lancement ${index + 1}`}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-3 transition hover:bg-fill hover:text-red active:scale-90"
-              >
-                <CloseIcon className="h-[13px] w-[13px]" />
-              </button>
-            </div>
-          ))}
-
-          <button
-            type="button"
-            onClick={() => onSupprimerJour(jour)}
-            className="w-full px-3 py-2 pl-8 text-left text-[12px] text-red transition hover:bg-fill-2"
+    <Panneau
+      titre={`Journée du ${formatJour(jour)}`}
+      action={
+        releve !== undefined ? (
+          <span
+            className={cn(
+              'text-[13px] font-semibold tabular-nums',
+              resultat > 0 ? 'text-green' : resultat < 0 ? 'text-red' : 'text-ink-3',
+            )}
           >
-            Supprimer cette journée{tokens > 0 ? ` et ses ${tokens} lancements` : ''}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-/**
- * La saisie d'une journée, en tête d'écran.
- *
- * On compose la liste des issues puis on valide d'un bloc. Valider sans rien
- * ajouter enregistre une journée sans lancement, qui est une observation à part
- * entière — d'où le libellé du bouton, qui change selon ce qu'on a composé.
- */
-function FormulaireJour({
-  onRelever,
-}: {
-  onRelever: (jour: string, issues: readonly ('tp' | 'rate')[]) => void
-}) {
-  const [jour, setJour] = useState(todayIso)
-  const [issues, setIssues] = useState<('tp' | 'rate')[]>([])
-
-  const tp = issues.filter((issue) => issue === 'tp').length
-
-  return (
-    <Panneau titre="Relever une journée">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <input
-          type="date"
-          value={jour}
-          aria-label="Jour à relever"
-          onChange={(event) => setJour(event.target.value)}
-          className="rounded-[7px] bg-fill px-2.5 py-1.5 text-[13px] tabular-nums outline-none"
-        />
-
+            {formatSol(resultat)}
+          </span>
+        ) : null
+      }
+    >
+      <div className="flex flex-wrap items-center gap-2 border-b border-separator px-3 py-2">
         <button
           type="button"
-          onClick={() => setIssues((liste) => [...liste, 'tp'])}
+          onClick={() => onAjouter(jour, 'tp')}
           className="flex items-center gap-1 rounded-full bg-green-soft px-3 py-1.5 text-[12.5px] font-semibold text-green transition hover:opacity-80 active:scale-95"
         >
           <PlusIcon className="h-[13px] w-[13px]" />
@@ -262,38 +213,92 @@ function FormulaireJour({
         </button>
         <button
           type="button"
-          onClick={() => setIssues((liste) => [...liste, 'rate'])}
+          onClick={() => onAjouter(jour, 'rate')}
           className="flex items-center gap-1 rounded-full bg-red-soft px-3 py-1.5 text-[12.5px] font-semibold text-red transition hover:opacity-80 active:scale-95"
         >
           <PlusIcon className="h-[13px] w-[13px]" />
           Raté
         </button>
 
-        <span className="text-[12.5px] text-ink-2 tabular-nums">
-          {issues.length === 0 ? 'aucun lancement' : `${tp} TP · ${issues.length - tp} ratés`}
-        </span>
-
-        {issues.length > 0 ? (
+        {releve === undefined ? (
           <button
             type="button"
-            onClick={() => setIssues([])}
-            className="text-[12px] text-ink-3 underline underline-offset-2 transition hover:text-ink"
+            onClick={() => onRelever(jour, [])}
+            className="rounded-full bg-fill px-3 py-1.5 text-[12.5px] font-semibold text-ink-2 transition hover:bg-fill-2 active:scale-95"
           >
-            effacer
+            Journée sans lancement
           </button>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() => {
-            onRelever(jour, issues)
-            setIssues([])
-          }}
-          className="ml-auto rounded-full bg-blue px-4 py-1.5 text-[13px] font-semibold text-white transition hover:opacity-90 active:scale-95"
-        >
-          {issues.length === 0 ? 'Journée sans lancement' : 'Relever'}
-        </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onSupprimerJour(jour)}
+            className="ml-auto text-[12px] text-ink-3 underline underline-offset-2 transition hover:text-red"
+          >
+            Ne plus relever cette journée
+            {liste.length > 0 ? ` (et ses ${liste.length} lancements)` : ''}
+          </button>
+        )}
       </div>
+
+      <Tableau
+        entetes={[
+          { label: '#', classe: 'w-7' },
+          { label: 'Token', classe: 'min-w-[160px] flex-1' },
+          { label: 'Issue', classe: 'w-[170px]' },
+          { label: 'Résultat', classe: 'w-[90px] text-right' },
+          { label: '', classe: 'w-7' },
+        ]}
+        vide={
+          liste.length === 0 ? (
+            <p className="px-3 py-8 text-center text-[13px] text-ink-3">
+              {releve === undefined
+                ? 'Journée pas encore regardée. Ajoutez ses lancements, ou relevez-la sans lancement si le wallet n’a rien lancé.'
+                : 'Relevée sans aucun lancement. Elle compte dans les journées observées et tire la moyenne par jour vers le bas — c’est voulu.'}
+            </p>
+          ) : undefined
+        }
+      >
+        {liste.map((token, index) => (
+          <Rangee key={token.id} className="group/ligne">
+            <span className="w-7 shrink-0 text-ink-3 tabular-nums">{index + 1}</span>
+
+            <span className="min-w-[160px] flex-1">
+              <ChampNomToken
+                numero={index + 1}
+                nom={token.nom}
+                mint={token.mint}
+                onChange={(patch) => onNom(token.id, patch)}
+              />
+            </span>
+
+            <span className="w-[170px] shrink-0">
+              <BoutonsIssue
+                valeur={token.issue}
+                onChange={(issue) => onIssue(token.id, issue)}
+                taille="compact"
+              />
+            </span>
+
+            <span
+              className={cn(
+                'w-[90px] shrink-0 text-right font-semibold tabular-nums',
+                token.issue === 'tp' ? 'text-green' : 'text-red',
+              )}
+            >
+              {formatSol(resultatToken(token.issue, reglages))}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => onSupprimerToken(token.id)}
+              aria-label={`Supprimer le lancement ${index + 1}`}
+              className="flex h-6 w-7 shrink-0 items-center justify-center rounded-full text-ink-3 transition hover:bg-fill hover:text-red active:scale-90 md:opacity-0 md:group-hover/ligne:opacity-100 md:focus-visible:opacity-100"
+            >
+              <CloseIcon className="h-[14px] w-[14px]" />
+            </button>
+          </Rangee>
+        ))}
+      </Tableau>
     </Panneau>
   )
 }
