@@ -106,6 +106,54 @@ function transfert() {
   }
 }
 
+/**
+ * Un achat passé par un routeur que le parser ne sait pas décoder.
+ *
+ * Forme relevée sur un wallet réel : `summary.type` à `transfer`, `parsedData`
+ * à `null`, `parserStatus` à `OK` — le parser ne signale pas qu'il a renoncé.
+ * Tous les mouvements sont pourtant là.
+ */
+function achatNonParse(options: {
+  mint?: string
+  lamports?: number
+  brut?: number
+  /** Loyer du compte token, tip Jito : du SOL qui ne va pas à la contrepartie. */
+  parasites?: { vers: string; montant: number }[]
+  contrepartie?: string
+} = {}) {
+  const mint = options.mint ?? MINT
+  const contrepartie = options.contrepartie ?? 'Poo1'
+
+  return {
+    signature: 'SigF',
+    parserStatus: 'OK',
+    parsed: {
+      blockTime: 1_791_928_955,
+      fee: 1_093_800,
+      feePayer: WALLET,
+      nativeTransfers: [
+        { fromUserAccount: WALLET, toUserAccount: contrepartie, amount: options.lamports ?? 75_280_783 },
+        ...(options.parasites ?? []).map((p) => ({
+          fromUserAccount: WALLET,
+          toUserAccount: p.vers,
+          amount: p.montant,
+        })),
+      ],
+      tokenTransfers: [
+        {
+          fromUserAccount: contrepartie,
+          toUserAccount: WALLET,
+          rawTokenAmount: options.brut ?? 2_326_009_480_472,
+          decimals: 6,
+          mint,
+        },
+      ],
+      summary: { type: 'transfer', description: 'transferred', parsedData: null },
+      instructions: [{ programId: 'FLASHX8DrLbgeR8FcfNV1F5krxYcYMUdBkrP1EPBtxB9' }],
+    },
+  }
+}
+
 describe('lireSwaps', () => {
   it('lit un achat dont les montants sont des chaînes', () => {
     const swap = lireSwaps([achat({})])[0]
@@ -232,5 +280,132 @@ describe('lireMetasDuLot', () => {
 
   it('encaisse une réponse vide', () => {
     expect(lireMetasDuLot({}).size).toBe(0)
+  })
+})
+
+describe('swaps recomposés depuis les transferts', () => {
+  it('reconstruit un achat que le parser a résumé en transfert', () => {
+    const swap = lireSwaps([achatNonParse()])[0]!
+
+    expect(swap).toEqual({
+      signature: 'SigF',
+      horodatage: 1_791_928_955,
+      protocole: null,
+      mintEntree: WSOL,
+      mintSortie: MINT,
+      bruitEntree: 75_280_783,
+      bruitSortie: 2_326_009_480_472,
+      decimales: 6,
+      reconstruit: true,
+    })
+  })
+
+  it('ne compte que le SOL versé à la contrepartie', () => {
+    // Le loyer du compte token part vers le compte créé, le tip vers un
+    // validateur : ni l'un ni l'autre n'appartient au prix d'entrée.
+    const swap = lireSwaps([
+      achatNonParse({
+        parasites: [
+          { vers: 'Ata2', montant: 1_513_840 },
+          { vers: 'TipJito', montant: 1_000_000 },
+        ],
+      }),
+    ])[0]!
+
+    expect(swap.bruitEntree).toBe(75_280_783)
+  })
+
+  it('reconstruit une vente, miroir de l’achat', () => {
+    const vente = achatNonParse()
+    vente.parsed.nativeTransfers = [
+      { fromUserAccount: 'Poo1', toUserAccount: WALLET, amount: 120_000_000 },
+    ]
+    vente.parsed.tokenTransfers = [
+      {
+        fromUserAccount: WALLET,
+        toUserAccount: 'Poo1',
+        rawTokenAmount: 2_326_009_480_472,
+        decimals: 6,
+        mint: MINT,
+      },
+    ]
+
+    const swap = lireSwaps([vente])[0]!
+    expect(swap.mintEntree).toBe(MINT)
+    expect(swap.mintSortie).toBe(WSOL)
+    expect(swap.bruitSortie).toBe(120_000_000)
+  })
+
+  it('ne prend pas un token reçu sans contrepartie pour un achat', () => {
+    // Le spam d'airdrop, exactement : un token arrive, rien ne sort.
+    const airdrop = achatNonParse()
+    airdrop.parsed.nativeTransfers = []
+
+    expect(lireSwaps([airdrop])).toHaveLength(0)
+  })
+
+  it('ignore une pool dont les coffres sont séparés', () => {
+    // Le SOL part ailleurs que vers l'expéditeur du token : l'appariement
+    // échoue, et c'est assumé — mieux vaut rien qu'un prix inventé.
+    const separee = achatNonParse({ contrepartie: 'Vau1tToken' })
+    separee.parsed.nativeTransfers = [
+      { fromUserAccount: WALLET, toUserAccount: 'Vau1tSol', amount: 75_280_783 },
+    ]
+
+    expect(lireSwaps([separee])).toHaveLength(0)
+  })
+
+  it('traite un paiement en SOL enveloppé comme du SOL', () => {
+    const enWsol = achatNonParse()
+    enWsol.parsed.nativeTransfers = []
+    enWsol.parsed.tokenTransfers = [
+      {
+        fromUserAccount: WALLET,
+        toUserAccount: 'Poo1',
+        rawTokenAmount: 75_280_783,
+        decimals: 9,
+        mint: WSOL,
+      },
+      ...enWsol.parsed.tokenTransfers,
+    ]
+
+    const swap = lireSwaps([enWsol])[0]!
+    expect(swap.mintEntree).toBe(WSOL)
+    expect(swap.mintSortie).toBe(MINT)
+    expect(swap.bruitEntree).toBe(75_280_783)
+  })
+
+  it('n’attribue pas deux fois le même SOL à deux tokens', () => {
+    const double = achatNonParse()
+    double.parsed.tokenTransfers = [
+      ...double.parsed.tokenTransfers,
+      {
+        fromUserAccount: 'Poo1',
+        toUserAccount: WALLET,
+        rawTokenAmount: 1_000_000,
+        decimals: 6,
+        mint: AUTRE,
+      },
+    ]
+
+    // Un seul paiement : un seul achat, celui du premier token servi.
+    const swaps = lireSwaps([double])
+    expect(swaps).toHaveLength(1)
+    expect(swaps[0]!.bruitEntree).toBe(75_280_783)
+  })
+
+  it('ne reconstruit rien sans payeur de frais', () => {
+    const anonyme = achatNonParse()
+    // @ts-expect-error — réponse abîmée.
+    anonyme.parsed.feePayer = null
+
+    expect(lireSwaps([anonyme])).toHaveLength(0)
+  })
+
+  it('laisse les swaps déclarés au chemin normal', () => {
+    // Pas de doublon : une transaction annoncée swap n'est jamais recomposée.
+    const swaps = lireSwaps([achat({}), achatNonParse()])
+    expect(swaps).toHaveLength(2)
+    expect(swaps.filter((s) => s.reconstruit)).toHaveLength(1)
   })
 })

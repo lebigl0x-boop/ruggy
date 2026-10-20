@@ -16,6 +16,13 @@
  *
  * D'où la règle de ce fichier : tout est lu défensivement, et une entrée qu'on
  * ne sait pas lire est ignorée plutôt que devinée.
+ *
+ * Avec une exception, mesurée : **le parser ne reconnaît pas tous les
+ * routeurs**. Un wallet passant par FlashX voit ses 1 756 transactions d'une
+ * journée résumées en `transfer`, `parsedData` à `null`, et `parserStatus` à
+ * `OK` — le parser n'avoue pas qu'il a renoncé. Les mouvements, eux, sont tous
+ * là. `swapsDepuisTransferts` les recompose quand, et seulement quand, le
+ * résumé n'annonce aucun swap.
  */
 
 /** Le mint de wrapped SOL. C'est la contrepartie de tous les achats suivis. */
@@ -34,6 +41,14 @@ export type Swap = {
   bruitSortie: number
   /** Décimales du token non-SOL de ce swap, quand la réponse les donne. */
   decimales: number | null
+  /**
+   * Vrai quand le swap a été recomposé depuis les transferts, faute de résumé.
+   *
+   * Absent — et non `false` — sur un swap déclaré par l'API : la clé n'apparaît
+   * que là où elle apprend quelque chose, et son absence se lit comme « lu tel
+   * quel ».
+   */
+  reconstruit?: true
 }
 
 // ---------------------------------------------------------------------------
@@ -93,37 +108,181 @@ export function lireSwaps(transactions: readonly unknown[]): Swap[] {
   const swaps: Swap[] = []
 
   for (const transaction of transactions) {
-    const parsed = champ(transaction, 'parsed')
-    const resume = champ(parsed, 'summary')
-    if (texte(champ(resume, 'type')) !== 'swap') continue
+    const resume = champ(champ(transaction, 'parsed'), 'summary')
 
-    const donnees = champ(resume, 'parsedData')
-    const mintEntree = texte(champ(donnees, 'input_mint'))
-    const mintSortie = texte(champ(donnees, 'output_mint'))
-    if (mintEntree === null || mintSortie === null) continue
+    // Le résumé annonce un swap : on le lit, et on s'en tient là. S'il est
+    // abîmé, il n'est pas rafistolé — une réponse qui se contredit n'est pas
+    // une réponse incomplète, et la recomposer reviendrait à deviner.
+    if (texte(champ(resume, 'type')) === 'swap') {
+      const declare = swapDeclare(transaction, resume)
+      if (declare !== null) swaps.push(declare)
+      continue
+    }
 
-    const bruitEntree = nombre(champ(donnees, 'in_amount'))
-    const bruitSortie = nombre(champ(donnees, 'actual_out_amount'))
-    if (bruitEntree === null || bruitSortie === null) continue
-    if (bruitEntree <= 0 || bruitSortie <= 0) continue
+    swaps.push(...swapsDepuisTransferts(transaction))
+  }
 
-    const signature = texte(champ(transaction, 'signature'))
-    const horodatage = nombre(champ(parsed, 'blockTime'))
-    if (signature === null || horodatage === null) continue
+  return swaps
+}
 
-    // Le token du swap est celui qui n'est pas du SOL ; s'il y en a deux, on
-    // prend celui de sortie, qui est le token acheté.
-    const mintToken = mintEntree === WSOL ? mintSortie : mintEntree
+/** Le swap tel que `parsedData` l'annonce. `null` si la réponse ne suit pas. */
+function swapDeclare(transaction: unknown, resume: unknown): Swap | null {
+  const donnees = champ(resume, 'parsedData')
+  const mintEntree = texte(champ(donnees, 'input_mint'))
+  const mintSortie = texte(champ(donnees, 'output_mint'))
+  if (mintEntree === null || mintSortie === null) return null
 
+  const bruitEntree = nombre(champ(donnees, 'in_amount'))
+  const bruitSortie = nombre(champ(donnees, 'actual_out_amount'))
+  if (bruitEntree === null || bruitSortie === null) return null
+  if (bruitEntree <= 0 || bruitSortie <= 0) return null
+
+  const signature = texte(champ(transaction, 'signature'))
+  const horodatage = nombre(champ(champ(transaction, 'parsed'), 'blockTime'))
+  if (signature === null || horodatage === null) return null
+
+  // Le token du swap est celui qui n'est pas du SOL ; s'il y en a deux, on
+  // prend celui de sortie, qui est le token acheté.
+  const mintToken = mintEntree === WSOL ? mintSortie : mintEntree
+
+  return {
+    signature,
+    horodatage,
+    protocole: texte(champ(donnees, 'protocol')),
+    mintEntree,
+    mintSortie,
+    bruitEntree,
+    bruitSortie,
+    decimales: decimalesDuMint(transaction, mintToken),
+  }
+}
+
+/** Le SOL qu'un compte a échangé avec chacun de ses voisins, en lamports. */
+type Flux = Map<string, number>
+
+function ajouterFlux(flux: Flux, compte: string, montant: number): void {
+  flux.set(compte, (flux.get(compte) ?? 0) + montant)
+}
+
+/** Un lot de tokens d'un même mint, et d'où il vient — ou bien où il va. */
+type Lot = { brut: number; contreparties: string[] }
+
+function ajouterLot(lots: Map<string, Lot>, mint: string, brut: number, voisin: string): void {
+  const lot = lots.get(mint)
+  if (lot === undefined) {
+    lots.set(mint, { brut, contreparties: [voisin] })
+    return
+  }
+  lot.brut += brut
+  if (!lot.contreparties.includes(voisin)) lot.contreparties.push(voisin)
+}
+
+/**
+ * Les swaps d'une transaction que le parser n'a pas su classer.
+ *
+ * Le pivot est le **payeur de frais** : c'est lui qui a signé, donc lui qui
+ * achète ou qui vend. Ce choix fait tenir les deux usages de ce module avec un
+ * seul code — sur l'historique d'un wallet, le payeur est le wallet suivi ; sur
+ * celui d'un mint, c'est le trader dont le prix nous intéresse pour l'ATH.
+ *
+ * Un achat est alors l'appariement d'un **token reçu** et du **SOL envoyé à
+ * celui qui l'a envoyé**, dans la même transaction ; une vente est le miroir.
+ * Apparier par contrepartie, plutôt que de sommer tout ce qui sort du wallet,
+ * est ce qui laisse de côté la priority fee, le tip et le loyer du compte
+ * token : ils partent ailleurs. Le prix d'entrée reste celui du swap.
+ *
+ * Ce que cette méthode ne voit pas, et c'est assumé : une pool dont les coffres
+ * sont séparés, où le SOL part vers un compte qui n'est pas celui d'où vient le
+ * token. L'appariement échoue alors, et la transaction est ignorée comme avant.
+ */
+export function swapsDepuisTransferts(transaction: unknown): Swap[] {
+  const parsed = champ(transaction, 'parsed')
+  const payeur = texte(champ(parsed, 'feePayer'))
+  const signature = texte(champ(transaction, 'signature'))
+  const horodatage = nombre(champ(parsed, 'blockTime'))
+  if (payeur === null || signature === null || horodatage === null) return []
+
+  const solSorti: Flux = new Map()
+  const solRecu: Flux = new Map()
+
+  for (const transfert of tableau(champ(parsed, 'nativeTransfers'))) {
+    const de = texte(champ(transfert, 'fromUserAccount'))
+    const vers = texte(champ(transfert, 'toUserAccount'))
+    const montant = nombre(champ(transfert, 'amount'))
+    if (montant === null || montant <= 0 || de === vers) continue
+    if (de === payeur && vers !== null) ajouterFlux(solSorti, vers, montant)
+    else if (vers === payeur && de !== null) ajouterFlux(solRecu, de, montant)
+  }
+
+  const entres = new Map<string, Lot>()
+  const sortis = new Map<string, Lot>()
+
+  for (const transfert of tableau(champ(parsed, 'tokenTransfers'))) {
+    const mint = texte(champ(transfert, 'mint'))
+    const de = texte(champ(transfert, 'fromUserAccount'))
+    const vers = texte(champ(transfert, 'toUserAccount'))
+    const brut = nombre(champ(transfert, 'rawTokenAmount'))
+    if (mint === null || brut === null || brut <= 0 || de === vers) continue
+
+    // Le SOL enveloppé est du SOL : certains routeurs paient en WSOL plutôt
+    // qu'en natif, et le traiter comme un token ferait un swap token/token.
+    if (mint === WSOL) {
+      if (de === payeur && vers !== null) ajouterFlux(solSorti, vers, brut)
+      else if (vers === payeur && de !== null) ajouterFlux(solRecu, de, brut)
+      continue
+    }
+
+    if (vers === payeur && de !== null) ajouterLot(entres, mint, brut, de)
+    else if (de === payeur && vers !== null) ajouterLot(sortis, mint, brut, vers)
+  }
+
+  const swaps: Swap[] = []
+
+  /**
+   * Le SOL échangé avec les contreparties d'un lot, **consommé** au passage.
+   *
+   * Consommé parce qu'une transaction peut porter deux tokens d'une même
+   * contrepartie : sans ce retrait, chacun se verrait attribuer la totalité du
+   * SOL et les deux prix d'entrée seraient faux.
+   */
+  const apparier = (flux: Flux, lot: Lot): number => {
+    let total = 0
+    for (const contrepartie of lot.contreparties) {
+      total += flux.get(contrepartie) ?? 0
+      flux.delete(contrepartie)
+    }
+    return total
+  }
+
+  for (const [mint, lot] of entres) {
+    const lamports = apparier(solSorti, lot)
+    if (lamports <= 0) continue
     swaps.push({
       signature,
       horodatage,
-      protocole: texte(champ(donnees, 'protocol')),
-      mintEntree,
-      mintSortie,
-      bruitEntree,
-      bruitSortie,
-      decimales: decimalesDuMint(transaction, mintToken),
+      protocole: null,
+      mintEntree: WSOL,
+      mintSortie: mint,
+      bruitEntree: lamports,
+      bruitSortie: lot.brut,
+      decimales: decimalesDuMint(transaction, mint),
+      reconstruit: true,
+    })
+  }
+
+  for (const [mint, lot] of sortis) {
+    const lamports = apparier(solRecu, lot)
+    if (lamports <= 0) continue
+    swaps.push({
+      signature,
+      horodatage,
+      protocole: null,
+      mintEntree: mint,
+      mintSortie: WSOL,
+      bruitEntree: lot.brut,
+      bruitSortie: lamports,
+      decimales: decimalesDuMint(transaction, mint),
+      reconstruit: true,
     })
   }
 

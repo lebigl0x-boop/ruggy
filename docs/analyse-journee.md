@@ -396,6 +396,20 @@ sur un milliard.
 des paramètres de pagination et de filtre temporel. La forme retenue vient d'une
 sonde sur l'API réelle.
 
+**Le parser ne reconnaît pas tous les routeurs, et ne le dit pas.** Un wallet
+passant par FlashX (`FLASHX8DrLbgeR8FcfNV1F5krxYcYMUdBkrP1EPBtxB9`, qui appelle
+pump.fun et PumpSwap en dessous) voit ses transactions résumées en `transfer`
+avec `parsedData: null` — et `parserStatus` reste à `OK`. Mesuré : 1 756
+transactions sur une journée, zéro classée `swap`, alors que le wallet avait
+acheté 54 tokens. L'endpoint n'accepte aucun filtre par type (`type`, `types`,
+`transactionTypes`, `summaryType` : tous `400 invalid request payload`), donc
+rien ne permet de l'éviter à la source. D'où `swapsDepuisTransferts` : quand le
+résumé n'annonce pas de swap, le swap est recomposé depuis `nativeTransfers` et
+`tokenTransfers`, en appariant le token reçu avec le SOL versé à **celui qui
+l'a envoyé**. C'est cet appariement, et non une somme des sorties du wallet, qui
+laisse dehors le tip et le loyer du compte token. Un résumé qui annonce un swap
+n'est jamais recomposé : pas de doublon, et une réponse abîmée reste écartée.
+
 **`parsedData.kind` n'est pas fiable.** Au moins sept valeurs pour la même
 intention (`buy`, `sell`, `buy_exact_sol_in`, `buy_exact_quote_in`, `swap`,
 `swap_base_in`, absent). On classe sur `input_mint` / `output_mint`.
