@@ -269,6 +269,68 @@ export type Trade = {
   entreeSol: number
   sortieSol: number
   issue: Issue
+  /**
+   * Les capitalisations du token, dans l'unité où elles ont été relevées — des
+   * dollars en pratique, parce que c'est ce qu'affichent les graphiques.
+   *
+   * L'unité n'entre jamais dans un calcul : seuls des rapports en sortent, et
+   * un rapport est sans unité. Mélanger du dollar et du SOL d'une ligne à
+   * l'autre ne fausserait donc aucun multiple — tant que les trois chiffres
+   * d'une même ligne sont lus sur la même échelle.
+   *
+   * `null` partout tant qu'un trade n'est pas chiffré : c'est une saisie
+   * facultative, et l'absence se lit comme une absence, pas comme un zéro.
+   */
+  mcEntree?: number | null
+  mcSortie?: number | null
+  /** Plus haute capitalisation atteinte après l'entrée. */
+  mcAth?: number | null
+}
+
+/**
+ * Le multiple réellement fait sur le token : sortie rapportée à l'entrée.
+ *
+ * C'est le mouvement du token, pas celui du portefeuille. Les deux coïncident
+ * quand la position est prise et soldée d'un bloc, et divergent dès qu'une
+ * sortie est partielle — raison de plus pour garder le PNL comme seule source
+ * du résultat en SOL.
+ */
+export function multipleRealise(trade: Trade): number | null {
+  const entree = trade.mcEntree
+  const sortie = trade.mcSortie
+  if (!entree || entree <= 0 || !sortie || sortie <= 0) return null
+  return sortie / entree
+}
+
+/**
+ * Le multiple maximal qu'offrait le token : son sommet rapporté à l'entrée.
+ *
+ * C'est un plafond, pas un regret : personne ne sort au sommet à la seconde.
+ * Il sert à mesurer la part du mouvement captée, trade après trade.
+ *
+ * Un ATH noté en dessous de la sortie est une faute de saisie, pas une
+ * information : le plus haut connu est alors la sortie elle-même, et c'est
+ * elle qu'on retient plutôt que de renvoyer un plafond sous le réalisé.
+ */
+export function multipleMax(trade: Trade): number | null {
+  const entree = trade.mcEntree
+  if (!entree || entree <= 0) return null
+  const ath = trade.mcAth
+  if (!ath || ath <= 0) return null
+  const sommet = Math.max(ath, trade.mcSortie && trade.mcSortie > 0 ? trade.mcSortie : 0)
+  return sommet / entree
+}
+
+/**
+ * Ce que ce trade aurait rendu soldé au sommet, en SOL.
+ *
+ * `engagé × (multiple max − 1)` : le gain d'une sortie parfaite, frais de
+ * réseau non déduits une seconde fois — ils sont déjà dans le montant engagé.
+ */
+export function potentielTrade(trade: Trade): number | null {
+  const max = multipleMax(trade)
+  if (max === null) return null
+  return trade.entreeSol * (max - 1)
 }
 
 export type BilanTrade = {
@@ -302,6 +364,30 @@ export type BilanTrade = {
   /** Les trades les plus récents regardés par la règle d'arrêt. */
   fenetreArret: number
   parTrade: Point[]
+
+  // --- Ce que les capitalisations ajoutent, quand elles sont saisies -------
+
+  /** Trades dont l'entrée **et** la sortie en capitalisation sont chiffrées. */
+  avecMultiple: number
+  /** Moyenne des multiples réalisés. `null` tant qu'aucun trade n'est chiffré. */
+  multipleMoyen: number | null
+  /** Trades dont l'entrée **et** l'ATH sont chiffrés. */
+  avecAth: number
+  /** Moyenne des multiples maximaux offerts. */
+  multipleMaxMoyen: number | null
+  /**
+   * Ce que les trades chiffrés auraient rendu soldés au sommet, en SOL.
+   *
+   * Somme sur les seuls trades à ATH connu — comparer un potentiel partiel à
+   * un résultat complet gonflerait le manque d'autant de trades non chiffrés.
+   */
+  potentiel: number | null
+  /** Le résultat réel sur ces mêmes trades, seul terme comparable au potentiel. */
+  resultatComparable: number | null
+  /** `potentiel − résultat` : ce qui est resté sur la table, en SOL. */
+  manque: number | null
+  /** Part du potentiel réellement captée, en %. `null` si le potentiel est nul. */
+  capture: number | null
 }
 
 /** Bilan de la phase active, à partir des trades joués. */
@@ -316,6 +402,13 @@ export function bilanTrade(trades: readonly Trade[], r: Reglages): BilanTrade {
   let tp = 0
   let prevuParTest = 0
 
+  // Les deux lots chiffrés, tenus à part : un multiple moyen calculé sur les
+  // seuls trades renseignés n'a rien à voir avec une moyenne sur tous.
+  const multiples: number[] = []
+  const maxima: number[] = []
+  let potentiel = 0
+  let resultatComparable = 0
+
   for (const trade of ordonnes) {
     const resultat = trade.sortieSol - trade.entreeSol
     cumul += resultat
@@ -324,8 +417,23 @@ export function bilanTrade(trades: readonly Trade[], r: Reglages): BilanTrade {
     if (trade.issue === 'tp') tp += 1
     prevuParTest += resultatToken(trade.issue, r)
 
+    const multiple = multipleRealise(trade)
+    if (multiple !== null) multiples.push(multiple)
+
+    const max = multipleMax(trade)
+    if (max !== null) {
+      maxima.push(max)
+      potentiel += trade.entreeSol * (max - 1)
+      resultatComparable += resultat
+    }
+
     parTrade.push({ repere: trade.date, resultat, cumul })
   }
+
+  const moyenne = (valeurs: readonly number[]): number | null =>
+    valeurs.length > 0
+      ? valeurs.reduce((somme, valeur) => somme + valeur, 0) / valeurs.length
+      : null
 
   const nombre = ordonnes.length
   const ecart = cumul - prevuParTest
@@ -349,5 +457,14 @@ export function bilanTrade(trades: readonly Trade[], r: Reglages): BilanTrade {
       fenetre.length >= DERNIERS_TRADES && gagnantsRecents < GAGNANTS_MINIMUM,
     fenetreArret: fenetre.length,
     parTrade,
+
+    avecMultiple: multiples.length,
+    multipleMoyen: moyenne(multiples),
+    avecAth: maxima.length,
+    multipleMaxMoyen: moyenne(maxima),
+    potentiel: maxima.length > 0 ? potentiel : null,
+    resultatComparable: maxima.length > 0 ? resultatComparable : null,
+    manque: maxima.length > 0 ? potentiel - resultatComparable : null,
+    capture: potentiel > 0 ? (resultatComparable / potentiel) * 100 : null,
   }
 }

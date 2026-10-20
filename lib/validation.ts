@@ -39,6 +39,37 @@ export function parseNombreFr(
   return Number.isFinite(lu) ? lu : null
 }
 
+/**
+ * Un montant écrit court : « 45k », « 1,2 M », « 450 000 », « $45K ».
+ *
+ * Les capitalisations se lisent sur un graphique, où elles sont toujours
+ * abrégées. Obliger à retaper « 45000 » quand l'écran affiche « 45K » est le
+ * meilleur moyen d'obtenir un zéro de trop une fois sur dix — et un multiple
+ * faux derrière.
+ *
+ * Le symbole monétaire est accepté et ignoré : l'unité ne sert à rien ici,
+ * seuls des rapports sortent de ces chiffres.
+ */
+export function parseMontantCourt(
+  valeur: string | number | null | undefined,
+): number | null {
+  if (valeur === null || valeur === undefined) return null
+  if (typeof valeur === 'number') return Number.isFinite(valeur) ? valeur : null
+
+  const propre = valeur.replace(/[$€\s  ]/g, '').trim()
+  if (propre === '') return null
+
+  const suffixes: Record<string, number> = { k: 1e3, m: 1e6, b: 1e9 }
+  const derniere = propre.slice(-1).toLowerCase()
+  const facteur = suffixes[derniere]
+
+  const corps = facteur ? propre.slice(0, -1) : propre
+  const nombre = parseNombreFr(corps)
+  if (nombre === null) return null
+
+  return facteur ? nombre * facteur : nombre
+}
+
 export type Bornes = { min: number; max: number; pas: number; unite: string }
 
 /**

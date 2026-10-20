@@ -7,6 +7,9 @@ import {
   bilanTest,
   bilanTrade,
   gainTp,
+  multipleMax,
+  multipleRealise,
+  potentielTrade,
   perteRate,
   resultatToken,
   seuilRentabilite,
@@ -349,5 +352,99 @@ describe('règle d’arrêt', () => {
 
   it('utilise bien une fenêtre de cinq', () => {
     expect(DERNIERS_TRADES).toBe(5)
+  })
+})
+
+// ---------------------------------------------------------------------------
+
+describe('multiples d’un trade', () => {
+  it('le multiple réalisé est le rapport des capitalisations', () => {
+    expect(multipleRealise(trade({ mcEntree: 45_000, mcSortie: 180_000 }))).toBeCloseTo(4, 10)
+  })
+
+  it('ne se calcule pas sans les deux capitalisations', () => {
+    expect(multipleRealise(trade())).toBeNull()
+    expect(multipleRealise(trade({ mcEntree: 45_000 }))).toBeNull()
+    expect(multipleRealise(trade({ mcSortie: 45_000 }))).toBeNull()
+    // Une capitalisation nulle n'est pas une capitalisation.
+    expect(multipleRealise(trade({ mcEntree: 0, mcSortie: 45_000 }))).toBeNull()
+  })
+
+  it('le multiple maximal rapporte l’ATH à l’entrée', () => {
+    expect(multipleMax(trade({ mcEntree: 45_000, mcAth: 900_000 }))).toBeCloseTo(20, 10)
+  })
+
+  it('retient la sortie quand l’ATH saisi lui est inférieur', () => {
+    // Faute de frappe : le sommet connu ne peut pas être sous la sortie.
+    const faux = trade({ mcEntree: 45_000, mcSortie: 180_000, mcAth: 90_000 })
+    expect(multipleMax(faux)).toBeCloseTo(4, 10)
+  })
+
+  it('le potentiel est le gain d’une sortie au sommet', () => {
+    // 0,05 SOL engagés sur un ×20 : 0,95 SOL de gain, mise déduite.
+    const t = trade({ entreeSol: 0.05, mcEntree: 45_000, mcAth: 900_000 })
+    expect(potentielTrade(t)).toBeCloseTo(0.95, 10)
+    expect(potentielTrade(trade())).toBeNull()
+  })
+})
+
+describe('bilanTrade — ce que les capitalisations ajoutent', () => {
+  const chiffres = [
+    // Sorti à ×4 sur un token qui a fait ×20 : 0,15 pris, 0,95 possibles.
+    trade({
+      entreeSol: 0.05,
+      sortieSol: 0.2,
+      mcEntree: 45_000,
+      mcSortie: 180_000,
+      mcAth: 900_000,
+    }),
+    // Sorti à ×2 sur un token qui a fait ×2 : rien laissé.
+    trade({
+      entreeSol: 0.05,
+      sortieSol: 0.1,
+      mcEntree: 50_000,
+      mcSortie: 100_000,
+      mcAth: 100_000,
+    }),
+  ]
+
+  it('moyenne les multiples réalisés et maximaux', () => {
+    const bilan = bilanTrade(chiffres, R)
+
+    expect(bilan.avecMultiple).toBe(2)
+    expect(bilan.multipleMoyen).toBeCloseTo(3, 10) // (4 + 2) / 2
+    expect(bilan.avecAth).toBe(2)
+    expect(bilan.multipleMaxMoyen).toBeCloseTo(11, 10) // (20 + 2) / 2
+  })
+
+  it('chiffre ce qui est resté sur la table', () => {
+    const bilan = bilanTrade(chiffres, R)
+
+    // Potentiel : 0,95 + 0,05 = 1 SOL. Réel sur ces mêmes trades : 0,20 SOL.
+    expect(bilan.potentiel).toBeCloseTo(1, 10)
+    expect(bilan.resultatComparable).toBeCloseTo(0.2, 10)
+    expect(bilan.manque).toBeCloseTo(0.8, 10)
+    expect(bilan.capture).toBeCloseTo(20, 10)
+  })
+
+  it('ne compare que les trades dont l’ATH est connu', () => {
+    // Le trade non chiffré pèse sur le résultat, jamais sur le potentiel.
+    const bilan = bilanTrade([...chiffres, trade({ entreeSol: 0.05, sortieSol: 0 })], R)
+
+    expect(bilan.resultat).toBeCloseTo(0.15, 10)
+    expect(bilan.avecAth).toBe(2)
+    expect(bilan.potentiel).toBeCloseTo(1, 10)
+    expect(bilan.resultatComparable).toBeCloseTo(0.2, 10)
+  })
+
+  it('laisse tout à null tant qu’aucune capitalisation n’est saisie', () => {
+    const bilan = bilanTrade([trade()], R)
+
+    expect(bilan.avecMultiple).toBe(0)
+    expect(bilan.multipleMoyen).toBeNull()
+    expect(bilan.multipleMaxMoyen).toBeNull()
+    expect(bilan.potentiel).toBeNull()
+    expect(bilan.manque).toBeNull()
+    expect(bilan.capture).toBeNull()
   })
 })

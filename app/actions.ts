@@ -74,6 +74,7 @@ import {
   borner,
   estAdresseSolana,
   estDateIso,
+  parseMontantCourt,
   parseNombreFr,
   valideNouveauWallet,
   type Souci,
@@ -262,9 +263,17 @@ export type TradeResultat =
 /**
  * Enregistre un trade réellement joué.
  *
- * L'entrée doit être un montant positif : sans elle, le rendement n'aurait pas
- * de dénominateur. La sortie peut être zéro — une position partie à zéro est
- * un résultat, pas une absence de saisie.
+ * Deux chiffres seulement sont demandés côté argent : la **mise** n'est pas
+ * ressaisie — elle est lue dans les réglages du wallet, où elle est déjà
+ * posée — et le **PNL** est recopié depuis le portefeuille. C'est la seule
+ * donnée du trade qui soit mesurée et non reconstituée : la saisir telle
+ * quelle évite d'en déduire une sortie à la main, et de se tromper.
+ *
+ * Les trois capitalisations sont facultatives et ne touchent pas à l'argent :
+ * elles racontent ce que le token a fait, pas ce que le portefeuille a fait.
+ *
+ * La mise vient du serveur, pas du client : deux onglets ouverts sur des
+ * réglages différents écriraient sinon deux montants pour la même stratégie.
  */
 export async function ajouterTradeAction(
   walletId: string,
@@ -272,22 +281,51 @@ export async function ajouterTradeAction(
     date: string
     nom?: string | null
     mint?: string | null
-    entreeSol: string | number | null
-    sortieSol: string | number | null
+    /** PNL réel du trade, en SOL. Négatif pour une perte, zéro accepté. */
+    pnlSol: string | number | null
+    mcEntree?: string | number | null
+    mcSortie?: string | number | null
+    mcAth?: string | number | null
     issue: unknown
   },
 ): Promise<TradeResultat> {
   if (!estDateIso(entree.date)) return { ok: false, message: 'Date invalide.' }
 
-  const entreeSol = parseNombreFr(entree.entreeSol)
-  const sortieSol = parseNombreFr(entree.sortieSol)
+  const reglages = await repo.reglagesDuWallet(walletId)
+  if (!reglages) return { ok: false, message: 'Wallet introuvable.' }
+  if (reglages.mise <= 0) {
+    return {
+      ok: false,
+      message: 'La mise du wallet est à zéro : posez-la dans les réglages avant de noter un trade.',
+    }
+  }
 
-  if (entreeSol === null || entreeSol <= 0) {
-    return { ok: false, message: 'L’entrée en SOL doit être un montant positif.' }
+  const pnl = parseNombreFr(entree.pnlSol)
+  if (pnl === null) {
+    return { ok: false, message: 'Le PNL en SOL doit être renseigné (zéro compris).' }
   }
-  if (sortieSol === null || sortieSol < 0) {
-    return { ok: false, message: 'La sortie en SOL doit être renseignée (zéro compris).' }
+
+  const mcEntree = parseMontantCourt(entree.mcEntree)
+  const mcSortie = parseMontantCourt(entree.mcSortie)
+  const mcAth = parseMontantCourt(entree.mcAth)
+
+  for (const [valeur, libelle] of [
+    [mcEntree, 'd’entrée'],
+    [mcSortie, 'de sortie'],
+    [mcAth, 'de l’ATH'],
+  ] as const) {
+    if (valeur !== null && valeur <= 0) {
+      return { ok: false, message: `La capitalisation ${libelle} doit être un montant positif.` }
+    }
   }
+
+  // Une perte plus grosse que la mise n'est pas une faute de frappe : les frais
+  // de réseau et le tip sont dans le PNL et sortent du portefeuille en plus de
+  // la mise. L'engagé absorbe alors le dépassement, la sortie tombe à zéro, et
+  // `sortie − entrée` reste exactement le PNL saisi.
+  const depasse = reglages.mise + pnl < 0
+  const entreeSol = depasse ? -pnl : reglages.mise
+  const sortieSol = depasse ? 0 : reglages.mise + pnl
 
   const trade = await repo.ajouterTrade(walletId, {
     date: entree.date,
@@ -296,6 +334,9 @@ export async function ajouterTradeAction(
     entreeSol,
     sortieSol,
     issue: versIssue(entree.issue),
+    mcEntree,
+    mcSortie,
+    mcAth,
   })
 
   rafraichir()

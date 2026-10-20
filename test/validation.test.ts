@@ -5,6 +5,7 @@ import {
   borner,
   estAdresseSolana,
   estDateIso,
+  parseMontantCourt,
   parseNombreFr,
   valideNouveauWallet,
 } from '@/lib/validation'
@@ -117,5 +118,33 @@ describe('valideNouveauWallet', () => {
     })
     expect(soucis).toHaveLength(1)
     expect(soucis[0]!.niveau).toBe('avertissement')
+  })
+})
+
+describe('parseMontantCourt', () => {
+  it('lit les abréviations des graphiques', () => {
+    expect(parseMontantCourt('45k')).toBe(45_000)
+    expect(parseMontantCourt('45K')).toBe(45_000)
+    expect(parseMontantCourt('1,2M')).toBe(1_200_000)
+    expect(parseMontantCourt('2b')).toBe(2_000_000_000)
+  })
+
+  it('ignore le symbole monétaire et les espaces', () => {
+    expect(parseMontantCourt('$45k')).toBe(45_000)
+    expect(parseMontantCourt('450 000')).toBe(450_000)
+    expect(parseMontantCourt(' 45 K$ ')).toBe(45_000)
+  })
+
+  it('accepte un montant écrit en entier', () => {
+    expect(parseMontantCourt('45000')).toBe(45_000)
+    expect(parseMontantCourt(45_000)).toBe(45_000)
+  })
+
+  it('renvoie null sur une saisie vide ou illisible', () => {
+    expect(parseMontantCourt('')).toBeNull()
+    expect(parseMontantCourt(null)).toBeNull()
+    expect(parseMontantCourt(undefined)).toBeNull()
+    expect(parseMontantCourt('k')).toBeNull()
+    expect(parseMontantCourt('abc')).toBeNull()
   })
 })

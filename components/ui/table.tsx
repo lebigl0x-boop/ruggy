@@ -85,9 +85,28 @@ export function Rangee({
  * ensuite. Un chiffre par colonne, son libellé au-dessus : c'est ce qu'on lit
  * en arrivant, avant de descendre dans les lignes.
  */
-export function Bande({ children }: { children: ReactNode }) {
+export function Bande({
+  children,
+  colonnes = 6,
+}: {
+  children: ReactNode
+  /**
+   * Chiffres par ligne en grand écran. À régler sur le nombre exact de cases :
+   * une case manquante laisse apparaître le fond de la grille, et la bande a
+   * l'air cassée.
+   */
+  colonnes?: 3 | 4 | 6
+}) {
+  const grille =
+    colonnes === 3 ? 'xl:grid-cols-3' : colonnes === 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-6'
+
   return (
-    <div className="mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-card bg-separator sm:grid-cols-3 xl:grid-cols-6 [&>*]:bg-card">
+    <div
+      className={cn(
+        'mb-2 grid grid-cols-2 gap-px overflow-hidden rounded-card bg-separator sm:grid-cols-3 [&>*]:bg-card',
+        grille,
+      )}
+    >
       {children}
     </div>
   )

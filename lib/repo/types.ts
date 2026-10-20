@@ -143,6 +143,10 @@ export type NouveauTrade = {
   entreeSol: number
   sortieSol: number
   issue: Issue
+  /** Capitalisations relevées sur le token. Facultatives. */
+  mcEntree?: number | null
+  mcSortie?: number | null
+  mcAth?: number | null
 }
 
 /** Ce qu'une suppression de wallet emporte, pour le dire avant de la faire. */

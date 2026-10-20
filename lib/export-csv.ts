@@ -25,6 +25,9 @@ const COLONNES = [
   'issue',
   'entree_sol',
   'sortie_sol',
+  'mc_entree',
+  'mc_sortie',
+  'mc_ath',
 ] as const
 
 /**
@@ -83,6 +86,10 @@ export function walletVersCsv(
     '#             recalcule avec mise_sol, tp_pct et frais_sol.',
     '# trade     : trades réellement joués — le résultat est sortie_sol − entree_sol,',
     '#             rien d’autre : frais de réseau et slippage y sont déjà.',
+    '#             entree_sol est la mise du wallet, sortie_sol vaut entree_sol + PNL saisi.',
+    '#             mc_* : capitalisations relevées sur le token, dans l’unité du graphique',
+    '#             (des dollars en pratique). Seuls des rapports en sortent :',
+    '#             multiple réalisé = mc_sortie / mc_entree, maximal = mc_ath / mc_entree.',
     '#',
     '# issue = tp   : le take-profit a été atteint → mise_sol × tp_pct / 100 − frais_sol',
     '# issue = rate : il ne l’a pas été          → − mise_sol − frais_sol',
@@ -103,6 +110,9 @@ export function walletVersCsv(
       'sans-lancement',
       '',
       '',
+      '',
+      '',
+      '',
     ] as (string | number | null)[])
 
   const lignes = [
@@ -114,6 +124,9 @@ export function walletVersCsv(
       token.issue,
       '',
       '',
+      '',
+      '',
+      '',
     ]),
     ...test.map((token) => [
       'test',
@@ -121,6 +134,9 @@ export function walletVersCsv(
       token.nom,
       token.mint,
       token.issue,
+      '',
+      '',
+      '',
       '',
       '',
     ]),
@@ -133,6 +149,9 @@ export function walletVersCsv(
       trade.issue,
       nombre(trade.entreeSol),
       nombre(trade.sortieSol),
+      nombre(trade.mcEntree ?? null),
+      nombre(trade.mcSortie ?? null),
+      nombre(trade.mcAth ?? null),
     ]),
   ].map((ligne) => ligne.map(cellule).join(','))
 

@@ -143,6 +143,10 @@ export const tokens = pgTable(
  * Le résultat est `sortieSol - entreeSol`, et rien d'autre : frais de réseau et
  * slippage sont déjà dans les montants. `issue` sert au taux au TP et au
  * contrefactuel — ce que le test prédisait sur ces mêmes trades.
+ *
+ * Les trois capitalisations ne touchent pas à l'argent : elles disent ce que le
+ * token a fait, là où les deux montants en SOL disent ce que le portefeuille a
+ * fait. Un ATH noté sans montant saisi reste une ligne valable.
  */
 export const trades = pgTable(
   'trades',
@@ -155,11 +159,24 @@ export const trades = pgTable(
     date: text('date').notNull(),
     nom: text('nom'),
     mint: text('mint'),
-    /** SOL réellement sorti du portefeuille. */
+    /** SOL réellement sorti du portefeuille — la mise du wallet, en général. */
     entreeSol: doublePrecision('entree_sol').notNull(),
-    /** SOL réellement rentré. */
+    /** SOL réellement rentré : `entree_sol + pnl` tel qu'il a été saisi. */
     sortieSol: doublePrecision('sortie_sol').notNull(),
     issue: text('issue').notNull(),
+
+    /**
+     * Les capitalisations du token, dans l'unité relevée (des dollars en
+     * pratique). Facultatives : `null` tant que le trade n'est pas chiffré.
+     *
+     * Seuls des rapports en sortent — multiple réalisé, multiple maximal — et
+     * un rapport est sans unité. Rien ne les convertit donc en SOL.
+     */
+    mcEntree: doublePrecision('mc_entree'),
+    mcSortie: doublePrecision('mc_sortie'),
+    /** Plus haute capitalisation atteinte après l'entrée. */
+    mcAth: doublePrecision('mc_ath'),
+
     creeLe: text('cree_le').notNull(),
   },
   (table) => [index('trades_wallet_date_idx').on(table.walletId, table.date)],

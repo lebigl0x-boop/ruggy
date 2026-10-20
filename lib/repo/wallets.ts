@@ -13,6 +13,7 @@ import type {
   NouveauWallet,
   PatchWallet,
   Phase,
+  Reglages,
   Token,
   TradeComplet,
   Wallet,
@@ -71,6 +72,9 @@ function versTrade(ligne: typeof trades.$inferSelect): TradeComplet {
     entreeSol: ligne.entreeSol,
     sortieSol: ligne.sortieSol,
     issue: versIssue(ligne.issue),
+    mcEntree: ligne.mcEntree,
+    mcSortie: ligne.mcSortie,
+    mcAth: ligne.mcAth,
   }
 }
 
@@ -142,6 +146,22 @@ export async function lireWallet(id: string): Promise<WalletComplet | null> {
     jours: lignesJours.map(versJour),
     trades: lignesTrades.map(versTrade),
   }
+}
+
+/**
+ * Les seuls réglages d'un wallet, sans son contenu.
+ *
+ * `lireWallet` ramène tokens, journées et trades : beaucoup de lignes pour
+ * trois nombres, quand une écriture a juste besoin de connaître la mise.
+ */
+export async function reglagesDuWallet(id: string): Promise<Reglages | null> {
+  const [ligne] = await db
+    .select({ mise: wallets.mise, tp: wallets.tp, frais: wallets.frais })
+    .from(wallets)
+    .where(eq(wallets.id, id))
+    .limit(1)
+
+  return ligne ? { mise: ligne.mise, tp: ligne.tp, frais: ligne.frais } : null
 }
 
 /** Adresses déjà suivies, pour refuser un doublon à la saisie. */
@@ -400,6 +420,9 @@ export async function ajouterTrade(
     entreeSol: entree.entreeSol,
     sortieSol: entree.sortieSol,
     issue: entree.issue,
+    mcEntree: entree.mcEntree ?? null,
+    mcSortie: entree.mcSortie ?? null,
+    mcAth: entree.mcAth ?? null,
     creeLe: maintenant(),
   }
 

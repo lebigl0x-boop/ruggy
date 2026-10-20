@@ -353,6 +353,7 @@ export function VueWallet({ wallet: initial }: { wallet: WalletComplet }) {
         <VueTrade
           bilan={prets.trade}
           trades={wallet.trades}
+          reglages={wallet.reglages}
           onAjouter={ajouterTrade}
           onSupprimer={supprimerTrade}
         />
