@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 
 import { multipleVise } from '@/lib/analyse'
 import {
@@ -26,6 +26,7 @@ import { ChampNomToken } from '../token/champ-nom-token'
 import { cn } from '../ui/cn'
 import { CloseIcon } from '../ui/icons'
 import { Bande, Chiffre, Panneau, Rangee, Tableau } from '../ui/table'
+import { Calendrier, Legende, moisDe, type MarqueJour } from './calendrier'
 import { BoutonsIssue } from './pieces'
 
 /** Ce que le formulaire remonte. La mise, elle, est lue côté serveur. */
@@ -55,6 +56,11 @@ export type SaisieTrade = {
  *
  * Les réglages du wallet n'entrent dans aucun résultat : ils servent au
  * contrefactuel — ce que le test prédisait sur ces mêmes trades.
+ *
+ * Le calendrier est celui du test, avec les mêmes gestes : un point par jour
+ * soldé, vert ou rouge selon le PNL de la journée, et cliquer une date réduit
+ * le tableau à ses trades. Un second clic sur la même date le rouvre en entier
+ * — on ne reste jamais coincé dans un jour.
  */
 export function VueTrade({
   bilan,
@@ -69,6 +75,45 @@ export function VueTrade({
   onAjouter: (entree: SaisieTrade) => void
   onSupprimer: (id: string) => void
 }) {
+  const [aujourdhui] = useState(todayIso)
+  const [mois, setMois] = useState(() => moisDe(aujourdhui))
+  /** Jour choisi dans le calendrier. `null` = tous les trades. */
+  const [selection, setSelection] = useState<string | null>(null)
+
+  // Le PNL d'une journée est la somme des trades soldés ce jour-là : la même
+  // addition que le résultat réel, mais arrêtée à la date.
+  const journees = useMemo(() => {
+    const table = new Map<string, { trades: number; resultat: number }>()
+    for (const trade of trades) {
+      const jour = table.get(trade.date) ?? { trades: 0, resultat: 0 }
+      jour.trades += 1
+      jour.resultat += trade.sortieSol - trade.entreeSol
+      table.set(trade.date, jour)
+    }
+    return table
+  }, [trades])
+
+  const marques = useMemo(() => {
+    const table = new Map<string, MarqueJour>()
+    for (const [jour, { trades: nombre, resultat }] of journees) {
+      table.set(jour, {
+        ton: resultat > 0 ? 'vert' : resultat < 0 ? 'rouge' : 'neutre',
+        titre: `${nombre} trade${nombre > 1 ? 's' : ''} · ${formatSol(resultat)}`,
+      })
+    }
+    return table
+  }, [journees])
+
+  const visibles = useMemo(
+    () =>
+      trades
+        .filter((trade) => selection === null || trade.date === selection)
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [trades, selection],
+  )
+
+  const jourChoisi = selection !== null ? journees.get(selection) : undefined
+
   return (
     <>
       <Bande>
@@ -155,8 +200,63 @@ export function VueTrade({
 
       <FormulaireTrade reglages={reglages} onAjouter={onAjouter} />
 
-      <div className="grid gap-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <Panneau titre={`Trades · ${bilan.trades}`}>
+      <div className="grid gap-2 xl:grid-cols-[304px_minmax(0,1fr)]">
+        <Panneau titre={`Journées · ${journees.size}`}>
+          <Calendrier
+            mois={mois}
+            onMois={setMois}
+            marques={marques}
+            selection={selection}
+            onSelection={(jour) =>
+              setSelection((precedent) => (precedent === jour ? null : jour))
+            }
+            aujourdhui={aujourdhui}
+            legende={
+              <>
+                <Legende classe="bg-green" libelle="journée gagnante" />
+                <Legende classe="bg-red" libelle="perdante" />
+                <Legende classe="bg-ink-3" libelle="à l’équilibre" />
+                <span>· un jour nu n’a rien de joué</span>
+              </>
+            }
+          />
+        </Panneau>
+
+        <Panneau
+          titre={
+            selection === null
+              ? `Trades · ${bilan.trades}`
+              : `Journée du ${formatJour(selection)}`
+          }
+          action={
+            selection === null ? null : (
+              <span className="flex items-center gap-2.5">
+                <span
+                  className={cn(
+                    'text-[13px] font-semibold tabular-nums',
+                    (jourChoisi?.resultat ?? 0) > 0
+                      ? 'text-green'
+                      : (jourChoisi?.resultat ?? 0) < 0
+                        ? 'text-red'
+                        : 'text-ink-3',
+                  )}
+                >
+                  {formatSol(jourChoisi?.resultat ?? 0)}
+                </span>
+                <span className="text-[11.5px] text-ink-3 tabular-nums">
+                  {jourChoisi?.trades ?? 0} trade{(jourChoisi?.trades ?? 0) > 1 ? 's' : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelection(null)}
+                  className="text-[12px] text-ink-3 underline underline-offset-2 transition hover:text-ink"
+                >
+                  Tous les trades
+                </button>
+              </span>
+            )
+          }
+        >
           <Tableau
             entetes={[
               { label: 'Date', classe: 'w-[92px]' },
@@ -169,17 +269,16 @@ export function VueTrade({
               { label: '', classe: 'w-7' },
             ]}
             vide={
-              trades.length === 0 ? (
+              visibles.length === 0 ? (
                 <p className="px-3 py-8 text-center text-[13px] text-ink-3">
-                  Aucun trade enregistré. Notez-en un dès que vous le soldez : le
-                  PNL tel qu’il apparaît dans le portefeuille, et les market caps
-                  d’entrée, de sortie et d’ATH.
+                  {selection !== null
+                    ? 'Aucun trade soldé ce jour-là. Cliquez à nouveau la date pour revoir tous les trades.'
+                    : 'Aucun trade enregistré. Notez-en un dès que vous le soldez : le PNL tel qu’il apparaît dans le portefeuille, et les market caps d’entrée, de sortie et d’ATH.'}
                 </p>
               ) : undefined
             }
           >
-            {[...trades]
-              .sort((a, b) => b.date.localeCompare(a.date))
+            {visibles
               .map((trade) => {
                 const resultat = trade.sortieSol - trade.entreeSol
                 const multiple = multipleRealise(trade)
@@ -257,36 +356,36 @@ export function VueTrade({
               })}
           </Tableau>
         </Panneau>
+      </div>
 
-        <div>
-          <Panneau titre="Résultat cumulé">
-            <div className="px-3 py-2.5">
-              <Courbe points={bilan.parTrade} hauteur={118} />
-            </div>
-          </Panneau>
+      <div className="grid gap-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <Panneau titre="Résultat cumulé">
+          <div className="px-3 py-2.5">
+            <Courbe points={bilan.parTrade} hauteur={118} />
+          </div>
+        </Panneau>
 
-          <Panneau titre="Lecture">
-            <p className="px-3 py-2 text-[12.5px] leading-snug text-ink-2">
-              {bilan.trades === 0
-                ? 'Dès qu’un trade est chiffré, l’écart au test dit si la simulation prédit quoi que ce soit.'
-                : bilan.ecartPct === null
-                  ? 'Le test ne prédit rien sur ces trades : rien à comparer.'
-                  : bilan.ecartPct < 0
-                    ? `Le réel rend ${formatPct(Math.abs(bilan.ecartPct))} de moins que le test annonçait : la simulation est optimiste sur ce wallet.`
-                    : `Le réel rend ${formatPct(bilan.ecartPct)} de plus que le test annonçait : la simulation sous-estime ce wallet.`}
+        <Panneau titre="Lecture">
+          <p className="px-3 py-2 text-[12.5px] leading-snug text-ink-2">
+            {bilan.trades === 0
+              ? 'Dès qu’un trade est chiffré, l’écart au test dit si la simulation prédit quoi que ce soit.'
+              : bilan.ecartPct === null
+                ? 'Le test ne prédit rien sur ces trades : rien à comparer.'
+                : bilan.ecartPct < 0
+                  ? `Le réel rend ${formatPct(Math.abs(bilan.ecartPct))} de moins que le test annonçait : la simulation est optimiste sur ce wallet.`
+                  : `Le réel rend ${formatPct(bilan.ecartPct)} de plus que le test annonçait : la simulation sous-estime ce wallet.`}
+          </p>
+          {bilan.capture !== null && bilan.manque !== null ? (
+            <p className="border-t border-separator px-3 py-2 text-[12.5px] leading-snug text-ink-2">
+              {bilan.capture >= 100
+                ? `Vous avez pris tout ce qu’il y avait à prendre sur les ${bilan.avecAth} trade${bilan.avecAth > 1 ? 's' : ''} chiffré${bilan.avecAth > 1 ? 's' : ''}.`
+                : `Sorti au sommet, ces ${bilan.avecAth} trade${bilan.avecAth > 1 ? 's' : ''} rendaient ${formatSol(bilan.potentiel ?? 0)} : ${formatSol(bilan.manque, { signe: false })} de plus. Personne ne sort à l’ATH — mais ${formatPct(bilan.capture)} capté dit si le TP est posé trop bas ou trop haut.`}
             </p>
-            {bilan.capture !== null && bilan.manque !== null ? (
-              <p className="border-t border-separator px-3 py-2 text-[12.5px] leading-snug text-ink-2">
-                {bilan.capture >= 100
-                  ? `Vous avez pris tout ce qu’il y avait à prendre sur les ${bilan.avecAth} trade${bilan.avecAth > 1 ? 's' : ''} chiffré${bilan.avecAth > 1 ? 's' : ''}.`
-                  : `Sorti au sommet, ces ${bilan.avecAth} trade${bilan.avecAth > 1 ? 's' : ''} rendaient ${formatSol(bilan.potentiel ?? 0)} : ${formatSol(bilan.manque, { signe: false })} de plus. Personne ne sort à l’ATH — mais ${formatPct(bilan.capture)} capté dit si le TP est posé trop bas ou trop haut.`}
-              </p>
-            ) : null}
-            <p className="border-t border-separator px-3 py-1.5 text-[11.5px] text-ink-3">
-              Argent compté : le PNL saisi, frais réseau et slippage compris.
-            </p>
-          </Panneau>
-        </div>
+          ) : null}
+          <p className="border-t border-separator px-3 py-1.5 text-[11.5px] text-ink-3">
+            Argent compté : le PNL saisi, frais réseau et slippage compris.
+          </p>
+        </Panneau>
       </div>
     </>
   )

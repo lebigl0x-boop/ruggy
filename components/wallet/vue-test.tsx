@@ -11,7 +11,8 @@ import { cn } from '../ui/cn'
 import { CloseIcon, PlusIcon } from '../ui/icons'
 import { Bande, Chiffre, Panneau, Rangee, Tableau } from '../ui/table'
 import { BoutonsIssue } from './pieces'
-import { CalendrierTest, moisDe, type JourReleve } from './calendrier-test'
+import { moisDe } from './calendrier'
+import { CalendrierTest, type JourReleve } from './calendrier-test'
 
 /**
  * La phase de test : un relevé exhaustif, jour par jour, sans argent réel.
